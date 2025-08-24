@@ -17,9 +17,8 @@ export function Closebutton() {
       backgroundTransparency={1}
       onHover={setHovered}
       onClick={() => {
-        // đóng shop: tắt checkout (reducer của bạn sẽ tự reset checkoutSolo về false)
-        store.setCheckout(false);
-        store.setShopOpen(false); // true = UI TẮT
+        store.setCheckout(true);
+        store.setShopOpen(false);
       }}
     >
       <Image

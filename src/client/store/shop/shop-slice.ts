@@ -5,7 +5,7 @@ export type SubPageFilterType = "" | "keyword" | "assetType" | "special";
 export interface SubPage { filterType: SubPageFilterType; value: string; }
 
 // 👇 Top-level menu pages (KHÁC với `page` bên trong shop)
-export type MenuPage = "shop" | "community";
+export type MenuPage = "shop" | "community"| "saveui";
 
 export interface ShopState {
   // ----- Menu-level routing -----

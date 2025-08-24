@@ -18,6 +18,8 @@ export function Savebutton({ visible = true }: Props) {
 			size={new UDim2(1, 0, 0, rem(5))}
 			backgroundTransparency={0}
 			onClick={() => {
+				store.setMenuPage("saveui");
+				store.setShopOpen(true);
 			}}
 		>
 			<uicorner CornerRadius={new UDim(0, 8)} />

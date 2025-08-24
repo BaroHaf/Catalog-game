@@ -4,27 +4,39 @@ import { CartUI } from "./toogle";
 import { ShopContainer } from "./shop-container";
 import { ShopUI } from "./shopui";
 import { Otherfeature } from "./OtherFeature";
-import { selectIsShopOpen, selectMenuPage } from "client/store/shop"; // 👈 thêm
-import { Saveui } from "./saveui/saveui";
-// import { Saveui } from "./shopui/saveui"; // (nếu không dùng, xoá import này)
+import { selectIsShopOpen, selectMenuPage } from "client/store/shop";
+import { SaveUI } from "./saveui/saveui";
+import { Savebuttonui } from "./saveui/savebuttons";
 
 export function Shop() {
-	const isOpen = useSelector(selectIsShopOpen);
-	const menuPage = useSelector(selectMenuPage); // 👈 đọc trang hiện tại
-	print("isOpen:", isOpen, "menuPage:", menuPage);
+  const isOpen = useSelector(selectIsShopOpen);
+  const menuPage = useSelector(selectMenuPage);
 
-	return (
-		<>
-			{/* Ẩn khi mở và đang ở trang 'shop' */}
-			{!(isOpen && menuPage === "shop") && <CartUI />}
+  const showShop   = menuPage === "shop";    // 👈 chỉ mount khi đúng page
+  const mountSaveUI = isOpen && menuPage === "saveui";
 
-			<ShopContainer page="shop" unmountDelay={0.5}>
-				<ShopUI />
-			</ShopContainer>
-			<ShopContainer page="community" unmountDelay={0.5}>
-				<Saveui />
-			</ShopContainer>
-			<Otherfeature />
-		</>
-	);
+  return (
+    <>
+      {/* Ẩn khi mở và đang ở trang 'shop' */}
+      {!(isOpen && showShop) && <CartUI />}
+
+      {/* Mount theo page để giảm cost khi chuyển trang */}
+      {showShop && (
+        <ShopContainer page="shop" unmountDelay={0.35}>
+          <ShopUI />
+        </ShopContainer>
+      )}
+
+      {mountSaveUI && (
+        <ShopContainer page="saveui">
+          <SaveUI />
+        </ShopContainer>
+      )}
+
+      {/* Khi shop đóng và đang ở trang saveui -> hiện nút ngay */}
+      {!isOpen && menuPage === "saveui" && <Savebuttonui />}
+
+      <Otherfeature />
+    </>
+  );
 }
