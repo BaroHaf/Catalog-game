@@ -1,5 +1,6 @@
 // src/client/components/shop/shopui/util/camerarotation.ts
 import { Players, ReplicatedStorage, MarketplaceService } from "@rbxts/services";
+import { remotes, type OutfitDelta } from "shared/remotes";
 
 /* =========================
    0) BUS SỰ KIỆN UI (tuỳ dùng)
@@ -305,7 +306,7 @@ function snapshotFromDesc(d: HumanoidDescription): DescSnapshot {
 	return snap;
 }
 
-// trước: function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot) {
+// soft/hard apply
 function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot, hard = false) {
 	const d = h.GetAppliedDescription();
 	// clothes
@@ -333,7 +334,6 @@ function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot, hard = false) 
 		if (typeOf(v) === "number") (d as unknown as Record<string, number>)[sk] = v as number;
 	}
 
-	// ⚠️ đổi chỗ này:
 	hard ? h.ApplyDescriptionReset(d) : h.ApplyDescription(d);
 }
 
@@ -348,7 +348,6 @@ export function clearDescriptionCache() {
    6) BROADCAST CORE
    ========================= */
 
-// trước: function applyClothesAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescription) {
 function applyClothesAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescription, hard = false) {
 	const d = toHum.GetAppliedDescription();
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
@@ -359,7 +358,6 @@ function applyClothesAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescriptio
 		const k = ACCESSORY_KEYS[i] as string;
 		(d as unknown as Record<string, unknown>)[k] = (srcDesc as unknown as Record<string, unknown>)[k];
 	}
-	// ⚠️ đổi chỗ này:
 	hard ? toHum.ApplyDescriptionReset(d) : toHum.ApplyDescription(d);
 }
 
@@ -375,18 +373,18 @@ function refreshCachePrefab(userId: number) {
 }
 
 /** Broadcast một desc (đã chỉnh) tới tất cả humanoid & cập nhật cache hợp nhất */
-// trước: function broadcastApplyFrom(srcDesc: HumanoidDescription) {
 function broadcastApplyFrom(srcDesc: HumanoidDescription, hard = false) {
 	persistFromDesc(srcDesc);
+
 	for (let i = 0; i < Targets.size(); i++) {
 		const hum = Targets[i];
-		// quần áo & phụ kiện -> đi qua applyClothesAndAccessories (theo hard)
 		applyClothesAndAccessories(hum, srcDesc, hard);
-		// đảm bảo đồng bộ snapshot (theo hard)
 		if (DescCache) applySnapshotToHumanoid(hum, DescCache, hard);
 	}
+
 	const uid = Players.LocalPlayer?.UserId;
 	if (uid !== undefined) refreshCachePrefab(uid);
+
 	requestReframe();
 	notifyAssetsChanged();
 }
@@ -395,7 +393,6 @@ function broadcastApplyFrom(srcDesc: HumanoidDescription, hard = false) {
    7) PUBLIC: OUTFIT OPS (BROADCAST)
    ========================= */
 
-/** Kiểm tra item đã áp vào outfit hiện thời chưa (đọc từ Primary) */
 export function isAssetApplied(assetType: Enum.AvatarAssetType, assetId: number): boolean {
 	const hum = getAnyTarget();
 	if (!hum || assetId <= 0) return false;
@@ -412,7 +409,7 @@ export function isAssetApplied(assetType: Enum.AvatarAssetType, assetId: number)
 	}
 }
 
-/** Gỡ đúng món ra khỏi mọi viewport (broadcast) */
+/** Gỡ đúng món ra khỏi mọi viewport (broadcast + gửi server) */
 export function takeOffAsset(assetType: Enum.AvatarAssetType, assetId: number) {
 	if (assetId <= 0) return;
 	enqueueOrRun(() => {
@@ -433,11 +430,21 @@ export function takeOffAsset(assetType: Enum.AvatarAssetType, assetId: number) {
 			if (idx >= 0) list.remove(idx);
 			(desc as unknown as Record<string, string>)[key] = toCsv(list);
 		}
+
+		// preview hard (đổi outfit)
 		broadcastApplyFrom(desc, true);
+
+		// gửi server (hard)
+		if (key === "Shirt" || key === "Pants" || key === "Face" || key === "GraphicTShirt") {
+			remotes.server.outfitDelta.fire({ [key]: 0, hard: true } as unknown as OutfitDelta);
+		} else {
+			const csv = (desc as unknown as Record<string, string>)[key] as string;
+			remotes.server.outfitDelta.fire({ [key]: csv, hard: true } as unknown as OutfitDelta);
+		}
 	});
 }
 
-/** Áp món vào outfit (broadcast) */
+/** Áp món vào outfit (broadcast + gửi server) */
 let tryOnInFlight = false;
 export function tryOnAsset(assetType: Enum.AvatarAssetType, assetId: number, opts?: { replaceList?: boolean }) {
 	if (assetId <= 0) return;
@@ -453,8 +460,11 @@ export function tryOnAsset(assetType: Enum.AvatarAssetType, assetId: number, opt
 		const key = getHDKeyForAssetType(assetType);
 		if (!key) return;
 
+		let payload: OutfitDelta;
+
 		if (key === "Shirt" || key === "Pants" || key === "Face" || key === "GraphicTShirt") {
 			(desc as unknown as Record<string, number>)[key] = assetId;
+			payload = { [key]: assetId, hard: true } as unknown as OutfitDelta;
 		} else {
 			const current = (desc as unknown as Record<string, string>)[key] as string | undefined;
 			const list = fromCsv(current ?? "");
@@ -464,12 +474,18 @@ export function tryOnAsset(assetType: Enum.AvatarAssetType, assetId: number, opt
 				uniquePush(list, assetId);
 				(desc as unknown as Record<string, string>)[key] = toCsv(list);
 			}
+			payload = { [key]: (desc as unknown as Record<string, string>)[key], hard: true } as unknown as OutfitDelta;
 		}
+
+		// preview hard (đổi outfit)
 		broadcastApplyFrom(desc, true);
+
+		// gửi server (hard)
+		remotes.server.outfitDelta.fire(payload);
 	});
 }
 
-/** Reset nhanh (tuỳ chọn clear quần áo) – broadcast */
+/** Reset nhanh (tuỳ chọn clear quần áo) – broadcast + gửi server */
 export function resetTryOn(clearClothes = false) {
 	enqueueOrRun(() => {
 		const base = getAnyTarget();
@@ -490,9 +506,28 @@ export function resetTryOn(clearClothes = false) {
 			d.GraphicTShirt = 0;
 			// d.Face = 0;
 		}
-		// cập nhật cache & broadcast
+		// cập nhật cache & broadcast (soft ở đây cũng được; nhưng ta để hard cho chắc)
 		persistFromDesc(d);
-		broadcastApplyFrom(d);
+		broadcastApplyFrom(d, true);
+
+		// gửi server (hard)
+		const payload: OutfitDelta = {
+			HatAccessory: "",
+			HairAccessory: "",
+			FaceAccessory: "",
+			NeckAccessory: "",
+			ShouldersAccessory: "",
+			FrontAccessory: "",
+			BackAccessory: "",
+			WaistAccessory: "",
+			hard: true,
+		};
+		if (clearClothes) {
+			payload.Shirt = 0;
+			payload.Pants = 0;
+			payload.GraphicTShirt = 0;
+		}
+		remotes.server.outfitDelta.fire(payload);
 	});
 }
 
@@ -634,7 +669,7 @@ export function setupViewportFromCachedCharacter(
 
 		// 4) Reframe hook & ÁP LẠI DESC CACHE (nếu có) TRƯỚC khi show
 		ReframeHooks.add(reframeThisViewport);
-		applyCachedDescriptionIfAny(false); // 👈 quan trọng để không “hồi sinh” phụ kiện cũ
+		applyCachedDescriptionIfAny(false); // apply mềm để tránh giật
 		notifyAssetsChanged();
 
 		// 5) Tính bbox + camera lần đầu
@@ -728,7 +763,7 @@ export function toggleSelected(key: BodyRegionExt) {
 	setSelected(key, !SelectedMap[key]);
 }
 
-/** Áp màu (persist & broadcast – ghi DescCache) */
+/** Áp màu (persist & broadcast – + gửi server) */
 export function applyBodyColor(color: Color3, region?: BodyRegion, snapToBrick = false): boolean {
 	const c3 = snapToBrick ? new BrickColor(color).Color : color;
 
@@ -748,7 +783,16 @@ export function applyBodyColor(color: Color3, region?: BodyRegion, snapToBrick =
 			(DescCache as unknown as Record<string, Color3>)[key] = c3;
 		}
 
+		// preview soft
 		broadcastApplyFrom(desc);
+
+		// gửi server (soft) – chỉ những phần đổi
+		const payload: Partial<OutfitDelta> = {};
+		for (let i = 0; i < targets.size(); i++) {
+			const k = (targets[i] + "Color") as keyof OutfitDelta;
+			(payload as Record<string, Color3>)[k as string] = c3;
+		}
+		remotes.server.outfitDelta.fire(payload as OutfitDelta);
 	});
 
 	return true;
@@ -843,7 +887,7 @@ export function getCurrentScales(): Record<ScaleKey, number> {
 	return out;
 }
 
-/** Set theo % 0..1, cập nhật DescCache & broadcast */
+/** Set theo % 0..1, cập nhật DescCache & broadcast + gửi server */
 export function setScalePct(key: ScaleKey, pct: number) {
 	const clamped = math.clamp(pct, 0, 1);
 
@@ -859,7 +903,12 @@ export function setScalePct(key: ScaleKey, pct: number) {
 		if (!DescCache) DescCache = snapshotFromDesc(desc);
 		(DescCache as unknown as Record<string, number>)[field] = (desc as unknown as Record<string, number>)[field];
 
+		// preview soft
 		broadcastApplyFrom(desc);
+
+		// gửi server (soft)
+		const val = (desc as unknown as Record<string, number>)[field];
+		remotes.server.outfitDelta.fire({ [field]: val } as unknown as OutfitDelta);
 	});
 }
 
@@ -870,13 +919,13 @@ export function applyCachedDescriptionIfAny(hard = false) {
 	if (!DescCache) return;
 	for (let i = 0; i < Targets.size(); i++) applySnapshotToHumanoid(Targets[i], DescCache, hard);
 }
+
 /* =========================
    13) ASSET INSPECTION (IDs & Names)
    ========================= */
 
 export type SimpleAssetInfo = { id: number; name: string };
 
-/** Lấy tên asset (thử MarketplaceService; fallback là "#<id>") */
 function getAssetName(assetId: number): string {
 	const [ok, info] = pcall(() => MarketplaceService.GetProductInfo(assetId));
 	if (ok && typeOf(info) === "table") {
@@ -887,18 +936,15 @@ function getAssetName(assetId: number): string {
 	return `#${tostring(assetId)}`;
 }
 
-/** Gom ID asset từ HumanoidDescription (shirt/pants/face/tshirt + accessories CSV) */
 function collectAssetIdsFromDesc(d: HumanoidDescription): number[] {
 	const ids = new Array<number>();
 
-	// clothes
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
 		const k = CLOTH_KEYS[i] as string;
 		const v = (d as unknown as Record<string, number>)[k];
 		if (typeOf(v) === "number" && (v as number) > 0) ids.push(v as number);
 	}
 
-	// accessories CSV
 	for (let i = 0; i < ACCESSORY_KEYS.size(); i++) {
 		const k = ACCESSORY_KEYS[i] as string;
 		const v = (d as unknown as Record<string, string>)[k];
@@ -915,7 +961,6 @@ function collectAssetIdsFromDesc(d: HumanoidDescription): number[] {
 		}
 	}
 
-	// Deduplicate
 	const seen = new Map<number, true>();
 	const out = new Array<number>();
 	for (let i = 0; i < ids.size(); i++) {
@@ -928,18 +973,15 @@ function collectAssetIdsFromDesc(d: HumanoidDescription): number[] {
 	return out;
 }
 
-/** Gom ID asset từ DescCache (snapshot) */
 function collectAssetIdsFromSnapshot(snap: DescSnapshot): number[] {
 	const ids = new Array<number>();
 
-	// Clothes
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
 		const k = CLOTH_KEYS[i] as string;
 		const v = (snap as unknown as Record<string, unknown>)[k];
 		if (typeOf(v) === "number" && (v as number) > 0) ids.push(v as number);
 	}
 
-	// Accessories CSV
 	for (let i = 0; i < ACCESSORY_KEYS.size(); i++) {
 		const k = ACCESSORY_KEYS[i] as string;
 		const v = (snap as unknown as Record<string, unknown>)[k];
@@ -956,7 +998,6 @@ function collectAssetIdsFromSnapshot(snap: DescSnapshot): number[] {
 		}
 	}
 
-	// Deduplicate
 	const seen = new Map<number, true>();
 	const out = new Array<number>();
 	for (let i = 0; i < ids.size(); i++) {
@@ -969,28 +1010,20 @@ function collectAssetIdsFromSnapshot(snap: DescSnapshot): number[] {
 	return out;
 }
 
-/** Public: trả về danh sách asset hiện tại (id + name) */
 export function getCurrentHumanoidAssets(): SimpleAssetInfo[] {
 	const base = getPrimaryHumanoid();
-	if (!base) {
-		//print("[getCurrentHumanoidAssets] Không tìm thấy PrimaryHumanoid");
-		return [];
-	}
+	if (!base) return [];
 
-	const ids = DescCache
-		? collectAssetIdsFromSnapshot(DescCache)
-		: collectAssetIdsFromDesc(base.GetAppliedDescription());
+	const ids = DescCache ? collectAssetIdsFromSnapshot(DescCache) : collectAssetIdsFromDesc(base.GetAppliedDescription());
 	const result = new Array<SimpleAssetInfo>();
 	for (let i = 0; i < ids.size(); i++) {
 		const id = ids[i];
 		const name = getAssetName(id);
-		//print(` -> Asset ${i}: id=${id}, name=${name}`);
 		result.push({ id, name });
 	}
 	return result;
 }
 
-// Map ngược: field -> AvatarAssetType
 const FIELD_TO_ASSETTYPE: Partial<Record<string, Enum.AvatarAssetType>> = {
 	Shirt: Enum.AvatarAssetType.Shirt,
 	Pants: Enum.AvatarAssetType.Pants,
@@ -1006,33 +1039,28 @@ const FIELD_TO_ASSETTYPE: Partial<Record<string, Enum.AvatarAssetType>> = {
 	WaistAccessory: Enum.AvatarAssetType.WaistAccessory,
 };
 
-/** Suy ra loại asset đang mặc của một id (đọc từ DescCache nếu có, else từ humanoid hiện tại). */
 export function getWornAssetTypeForId(assetId: number): Enum.AvatarAssetType | undefined {
 	const hum = getPrimaryHumanoid();
 	if (!hum || assetId <= 0) return undefined;
 
 	const d = DescCache ? DescCache : snapshotFromDesc(hum.GetAppliedDescription());
 
-	// quần áo 1-1
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
-		const k = CLOTH_KEYS[i] as string;
-		const v = (d as unknown as Record<string, unknown>)[k];
-		if (typeOf(v) === "number" && (v as number) === assetId) {
-			return FIELD_TO_ASSETTYPE[k];
-		}
+	 const k = CLOTH_KEYS[i] as string;
+	 const v = (d as unknown as Record<string, unknown>)[k];
+	 if (typeOf(v) === "number" && (v as number) === assetId) {
+		 return FIELD_TO_ASSETTYPE[k];
+	 }
 	}
-	// accessories (CSV)
 	for (let i = 0; i < ACCESSORY_KEYS.size(); i++) {
-		const k = ACCESSORY_KEYS[i] as string;
-		const v = (d as unknown as Record<string, unknown>)[k];
-		if (typeOf(v) === "string" && (v as string) !== "") {
-			for (const raw of (v as string).split(",")) {
-				const n = tonumber(raw);
-				if (n && n === assetId) {
-					return FIELD_TO_ASSETTYPE[k];
-				}
-			}
-		}
+	 const k = ACCESSORY_KEYS[i] as string;
+	 const v = (d as unknown as Record<string, unknown>)[k];
+	 if (typeOf(v) === "string" && (v as string) !== "") {
+		 for (const raw of (v as string).split(",")) {
+			 const n = tonumber(raw);
+			 if (n && n === assetId) return FIELD_TO_ASSETTYPE[k];
+		 }
+	 }
 	}
 	return undefined;
 }

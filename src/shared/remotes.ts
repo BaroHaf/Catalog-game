@@ -1,6 +1,7 @@
+// shared/remotes.ts
 import { createRemotes, namespace, remote, Client, Server } from "@rbxts/remo";
 
-/* ========= CART (giữ nguyên nếu bạn đang dùng) ========= */
+/* ========= CART ========= */
 export type ItemData = {
   id: number;
   name: string;
@@ -17,7 +18,7 @@ export type InventorySyncPayload = {
   remove?: number[];
 };
 
-/* ========= OUTFITS ========= */
+/* ========= OUTFITS (Preset lưu) ========= */
 export type Outfit = {
   name: string;         // tên hiển thị
   assets: number[];     // danh sách AvatarAssetId
@@ -40,6 +41,26 @@ export type OutfitsSyncPayload =
 
 /** Full outfits của tất cả người đang ONLINE trong server hiện tại */
 export type GlobalOutfitsFull = Record<number, OutfitSave>; // ownerId -> OutfitSave
+
+/* ========= OUTFIT DELTA (gửi liên tục khi kéo/mặc/cởi) ========= */
+/** Chỉ gửi phần vừa đổi; `hard=true` cho mặc/cởi/reset (server sẽ ApplyDescriptionReset ở nhịp đó) */
+export type OutfitDelta = Partial<{
+  // clothes (id) + face/tshirt
+  Shirt: number; Pants: number; GraphicTShirt: number; Face: number;
+
+  // accessories (CSV string)
+  HatAccessory: string; HairAccessory: string; FaceAccessory: string; NeckAccessory: string;
+  ShouldersAccessory: string; FrontAccessory: string; BackAccessory: string; WaistAccessory: string;
+
+  // body colors
+  HeadColor: Color3; TorsoColor: Color3; LeftArmColor: Color3; RightArmColor: Color3; LeftLegColor: Color3; RightLegColor: Color3;
+
+  // scales
+  HeightScale: number; WidthScale: number; DepthScale: number; HeadScale: number;
+  BodyTypeScale: number; ProportionScale: number;
+
+  hard?: boolean;
+}>;
 
 export const remotes = createRemotes({
   client: namespace({
@@ -73,5 +94,8 @@ export const remotes = createRemotes({
     patchOutfitName: remote<Server, [oldName: string, newName: string]>(),
     /** PATCH đặt outfit hiện tại (undefined để bỏ chọn) */
     patchOutfitCurrent: remote<Server, [name?: string]>(),
+
+    // ========= NEW: gửi delta liên tục, server gộp theo nhịp =========
+    outfitDelta: remote<Server, [delta: OutfitDelta]>(),
   }),
 });
