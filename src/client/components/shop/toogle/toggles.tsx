@@ -12,7 +12,7 @@ import { Image } from "client/components/ui/image";
 import { Text } from "client/components/ui/text";
 import { Button } from "client/components/ui/button";
 import { fonts } from "client/constants/fonts";
-
+import { selectMenuPage } from "client/store/shop";
 function UIScale({ scale }: { scale: Binding<number> }) {
 	return <uiscale Scale={scale} />;
 }
@@ -21,6 +21,9 @@ export function CartUI() {
 	const rem = useRem();
 	const store = useStore();
 	const isOpen = useSelector(selectIsShopOpen); // đúng nghĩa: true = UI đang mở
+	const menuPage = useSelector(selectMenuPage);
+
+	const isOpenOnShop = isOpen && menuPage === "shop";
 
 	const [press, hover, buttonEvents] = useButtonState();
 	const [motion, motionApi] = useMotion(0);
@@ -50,17 +53,17 @@ export function CartUI() {
 			onMouseDown={buttonEvents.onMouseDown}
 			onMouseUp={buttonEvents.onMouseUp}
 			onClick={() => {
-				if (isOpen) {
-					// đang mở -> đóng & clear trạng thái cart
+				if (isOpenOnShop) {
+					// Đang mở đúng trang shop -> đóng
 					store.setCheckout(false);
 					store.setCheckoutSolo(false);
 					store.setShopOpen(false);
 				} else {
-					// đang đóng -> mở đúng trang shop
-					store.setShopOpen(true);
+					// Đang đóng, hoặc đang mở nhưng ở trang khác -> chuyển sang shop & mở
+					store.setMenuPage("shop"); // ĐẶT TRANG TRƯỚC
 					store.setCheckout(false);
 					store.setCheckoutSolo(false);
-					store.setMenuPage("shop");
+					store.setShopOpen(true); // RỒI MỚI MỞ
 				}
 			}}
 			size={lerpBinding(motion, new UDim2(0, baseSize, 0, baseSize), new UDim2(0, expandedSize, 0, baseSize))}
