@@ -18,8 +18,6 @@ export function Savebutton({ visible = true }: Props) {
 			size={new UDim2(1, 0, 0, rem(5))}
 			backgroundTransparency={0}
 			onClick={() => {
-				store.setMenuPage("community");
-				store.setShopOpen(true);
 			}}
 		>
 			<uicorner CornerRadius={new UDim(0, 8)} />
@@ -30,7 +28,7 @@ export function Savebutton({ visible = true }: Props) {
 				zIndex={1}
 				anchorPoint={new Vector2(0.5, 0.5)}
 				position={new UDim2(0.5, 0, 0.5, 0)}
-				imageColor={Color3.fromRGB(57, 0, 245)}
+				imageColor={Color3.fromRGB(98, 152, 127)}
 			/>
 		</ReactiveButton>
 	);

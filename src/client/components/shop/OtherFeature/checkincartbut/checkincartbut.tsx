@@ -26,14 +26,16 @@ export function Checkincart({ visible = true }: Props) {
 					// UI đang TẮT → mở CART ở chế độ SOLO (chỉ CartPage)
 					store.setCheckout(true);
 					store.setCheckoutSolo(true);
-					store.setShopOpen(false); // false = UI BẬT
+					store.setShopOpen(true); 
+					store.setMenuPage("shop");
+
 					return;
 				}
 
 				if (checkout && checkoutSolo) {
 					// Đang CART SOLO → chỉ ĐÓNG SHOP, KHÔNG đụng tới 2 cờ checkout
 					// => Không có tick trung gian nhảy sang Viewport+Display
-					store.setShopOpen(true); // true = UI TẮT
+					store.setShopOpen(false);
 					return;
 				}
 

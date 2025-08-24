@@ -19,6 +19,8 @@ return {
 			minus_icon="rbxassetid://95335806748460",
 			checked_icon="rbxassetid://95893221842296",
 			save_icon="rbxassetid://85875483306570",
+			community_icon="rbxassetid://139440841378859",
+			plus_icon="rbxassetid://100218557399302",
 			alert_dismiss = "rbxassetid://14402269904",
 			backdrop = "rbxassetid://14921324346",
 			blur = "rbxassetid://14120516187",

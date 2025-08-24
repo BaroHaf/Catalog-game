@@ -3,6 +3,7 @@ import { Frame } from "client/components/ui/frame";
 import { Checkincart } from "./checkincartbut";
 import { useRem } from "client/hooks";
 import { Savebutton } from "./savebut";
+import { ComButton } from "./communitybut";
 export function Otherfeature() {
     const rem = useRem();
     return (
@@ -10,6 +11,7 @@ export function Otherfeature() {
         <uilistlayout Padding={new UDim(0,3)}/>
         <Checkincart/>
         <Savebutton/>
+        <ComButton/>
       </Frame>
     );
 }

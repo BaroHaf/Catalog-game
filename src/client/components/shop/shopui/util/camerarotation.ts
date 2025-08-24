@@ -305,9 +305,9 @@ function snapshotFromDesc(d: HumanoidDescription): DescSnapshot {
 	return snap;
 }
 
-function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot) {
+// trước: function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot) {
+function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot, hard = false) {
 	const d = h.GetAppliedDescription();
-
 	// clothes
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
 		const k = CLOTH_KEYS[i] as string;
@@ -333,8 +333,8 @@ function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot) {
 		if (typeOf(v) === "number") (d as unknown as Record<string, number>)[sk] = v as number;
 	}
 
-	// h.ApplyDescription(d);
-	h.ApplyDescriptionReset(d); 
+	// ⚠️ đổi chỗ này:
+	hard ? h.ApplyDescriptionReset(d) : h.ApplyDescription(d);
 }
 
 function persistFromDesc(d: HumanoidDescription) {
@@ -348,7 +348,8 @@ export function clearDescriptionCache() {
    6) BROADCAST CORE
    ========================= */
 
-function applyClothesAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescription) {
+// trước: function applyClothesAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescription) {
+function applyClothesAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescription, hard = false) {
 	const d = toHum.GetAppliedDescription();
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
 		const k = CLOTH_KEYS[i] as string;
@@ -358,8 +359,8 @@ function applyClothesAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescriptio
 		const k = ACCESSORY_KEYS[i] as string;
 		(d as unknown as Record<string, unknown>)[k] = (srcDesc as unknown as Record<string, unknown>)[k];
 	}
-	// toHum.ApplyDescription(d);
-	toHum.ApplyDescriptionReset(d); // ✅
+	// ⚠️ đổi chỗ này:
+	hard ? toHum.ApplyDescriptionReset(d) : toHum.ApplyDescription(d);
 }
 
 /** đồng bộ prefab cache (nếu có) để lần mount sau clone ra đã đúng */
@@ -374,24 +375,20 @@ function refreshCachePrefab(userId: number) {
 }
 
 /** Broadcast một desc (đã chỉnh) tới tất cả humanoid & cập nhật cache hợp nhất */
-function broadcastApplyFrom(srcDesc: HumanoidDescription) {
-	// lưu snapshot chung
+// trước: function broadcastApplyFrom(srcDesc: HumanoidDescription) {
+function broadcastApplyFrom(srcDesc: HumanoidDescription, hard = false) {
 	persistFromDesc(srcDesc);
-
 	for (let i = 0; i < Targets.size(); i++) {
 		const hum = Targets[i];
-		// copy quần áo & phụ kiện:
-		applyClothesAndAccessories(hum, srcDesc);
-		// đảm bảo toàn bộ mô tả match snapshot hợp nhất (màu/scale nếu có):
-		if (DescCache) applySnapshotToHumanoid(hum, DescCache);
+		// quần áo & phụ kiện -> đi qua applyClothesAndAccessories (theo hard)
+		applyClothesAndAccessories(hum, srcDesc, hard);
+		// đảm bảo đồng bộ snapshot (theo hard)
+		if (DescCache) applySnapshotToHumanoid(hum, DescCache, hard);
 	}
-
-	// cập nhật luôn prefab trong ReplicatedStorage.cached/<userId>/Character
 	const uid = Players.LocalPlayer?.UserId;
 	if (uid !== undefined) refreshCachePrefab(uid);
-
 	requestReframe();
-	notifyAssetsChanged(); // báo cho UI (nếu đang listen)
+	notifyAssetsChanged();
 }
 
 /* =========================
@@ -436,7 +433,7 @@ export function takeOffAsset(assetType: Enum.AvatarAssetType, assetId: number) {
 			if (idx >= 0) list.remove(idx);
 			(desc as unknown as Record<string, string>)[key] = toCsv(list);
 		}
-		broadcastApplyFrom(desc);
+		broadcastApplyFrom(desc, true);
 	});
 }
 
@@ -468,7 +465,7 @@ export function tryOnAsset(assetType: Enum.AvatarAssetType, assetId: number, opt
 				(desc as unknown as Record<string, string>)[key] = toCsv(list);
 			}
 		}
-		broadcastApplyFrom(desc);
+		broadcastApplyFrom(desc, true);
 	});
 }
 
@@ -637,7 +634,7 @@ export function setupViewportFromCachedCharacter(
 
 		// 4) Reframe hook & ÁP LẠI DESC CACHE (nếu có) TRƯỚC khi show
 		ReframeHooks.add(reframeThisViewport);
-		applyCachedDescriptionIfAny(); // 👈 quan trọng để không “hồi sinh” phụ kiện cũ
+		applyCachedDescriptionIfAny(false); // 👈 quan trọng để không “hồi sinh” phụ kiện cũ
 		notifyAssetsChanged();
 
 		// 5) Tính bbox + camera lần đầu
@@ -869,11 +866,10 @@ export function setScalePct(key: ScaleKey, pct: number) {
 /* =========================
    12) APPLY CACHE VÀO TẤT CẢ TARGETS
    ========================= */
-export function applyCachedDescriptionIfAny() {
+export function applyCachedDescriptionIfAny(hard = false) {
 	if (!DescCache) return;
-	for (let i = 0; i < Targets.size(); i++) applySnapshotToHumanoid(Targets[i], DescCache);
+	for (let i = 0; i < Targets.size(); i++) applySnapshotToHumanoid(Targets[i], DescCache, hard);
 }
-
 /* =========================
    13) ASSET INSPECTION (IDs & Names)
    ========================= */
