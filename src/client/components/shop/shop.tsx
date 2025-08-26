@@ -7,6 +7,7 @@ import { Otherfeature } from "./OtherFeature";
 import { selectIsShopOpen, selectMenuPage } from "client/store/shop";
 import { SaveUI } from "./saveui/saveui";
 import { Savebuttonui } from "./saveui/savebuttons";
+import { ComUI } from "./saveui/comui";
 
 export function Shop() {
   const isOpen = useSelector(selectIsShopOpen);
@@ -14,6 +15,7 @@ export function Shop() {
 
   const showShop   = menuPage === "shop";    // 👈 chỉ mount khi đúng page
   const mountSaveUI = isOpen && menuPage === "saveui";
+  const mountComUI = isOpen && menuPage === "community";
 
   return (
     <>
@@ -32,7 +34,11 @@ export function Shop() {
           <SaveUI />
         </ShopContainer>
       )}
-
+      {mountComUI && (
+        <ShopContainer page="community">
+          <ComUI />
+        </ShopContainer>
+      )}
       {/* Khi shop đóng và đang ở trang saveui -> hiện nút ngay */}
       {!isOpen && menuPage === "saveui" && <Savebuttonui />}
 

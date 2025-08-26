@@ -67,10 +67,6 @@ export function initOutfitsService() {
     remotes.client.outfitsSync.fire(player, { full: true, data: cur as unknown as OutfitSave });
   });
 
-  remotes.server.getOutfitsGlobal.connect((player) => {
-    const cur = saves.get(player.UserId) ?? DEFAULT_OUTFITS;
-    remotes.client.outfitsSync.fire(player, { full: true, data: cur as unknown as OutfitSave });
-  });
 
   /* ---------- POST ---------- */
   remotes.server.postOutfit.connect((player, name, assets, snapshotThumb) => {
@@ -89,15 +85,6 @@ export function initOutfitsService() {
 
   remotes.server.patchOutfitCurrent.connect((player, name) => {
     setCurrentOutfitByName(player, name);
-  });
-
-  /* ---------- CLEAR (DEV) ---------- */
-  remotes.server.clearMyOutfits?.connect?.((player) => {
-    if (!ALLOW_CLEAR) {
-      warn(`[Outfits] ${player.Name} requested clear but not allowed`);
-      return;
-    }
-    clearAllOutfits(player);
   });
 }
 

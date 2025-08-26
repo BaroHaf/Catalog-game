@@ -1,4 +1,3 @@
-// src/client/components/shop/saveui/saveui.tsx
 import React, { useEffect, useMemo, useState } from "@rbxts/react";
 import { Frame } from "client/components/ui/frame";
 import { useRem, useStore } from "client/hooks";
@@ -7,19 +6,18 @@ import { images } from "shared/assets";
 import { Button } from "client/components/ui/button";
 import { CharField } from "./charfield";
 import { remotes, type Outfit, type OutfitSave, type OutfitsSyncPayload } from "shared/remotes";
-import { buildDescriptionFromAssets } from "./utils/build-desc-from-assets";
+// 🔁 Quay về util trong client để tránh isolated container error
+import { buildDescriptionFromAssets } from "client/components/shop/saveui/utils/build-desc-from-assets";
 import { DisplaySaveOpt } from "./displaysaveopt";
+import { Players } from "@rbxts/services"; // ✅ cần import
 
 export function SaveUI() {
 	const rem = useRem();
 	const store = useStore();
 
 	const [save, setSave] = useState<OutfitSave>({ outfits: {}, current: undefined });
-
-	// ô đang mở panel
 	const [openKey, setOpenKey] = useState<string | undefined>(undefined);
 
-	// Kết nối remote và load outfits ban đầu
 	useEffect(() => {
 		const disconnect = remotes.client.outfitsSync.connect((payload: OutfitsSyncPayload) => {
 			task.defer(() => {
@@ -61,22 +59,20 @@ export function SaveUI() {
 		return () => disconnect();
 	}, []);
 
-	// Keys được sort theo updatedAt
 	const orderedKeys = useMemo(() => {
 		const out = new Array<string>();
 		for (const [k] of pairs(save.outfits)) out.push(k);
+		// Luau comparator: return boolean
 		out.sort((a, b) => {
 			const ta = save.outfits[a]?.updatedAt ?? 0;
 			const tb = save.outfits[b]?.updatedAt ?? 0;
-			return ta > tb; // Luau comparator: boolean
+			return ta > tb;
 		});
 		return out;
 	}, [save]);
 
-	// State chứa các HumanoidDescription
 	const [descsByKey, setDescsByKey] = useState(new Map<string, HumanoidDescription>());
 
-	// Tạo chữ ký deps từ assets để trigger rebuild desc
 	const buildSig = useMemo(() => {
 		const parts = new Array<string>();
 		for (let i = 0; i < orderedKeys.size(); i++) {
@@ -89,7 +85,6 @@ export function SaveUI() {
 	}, [orderedKeys, save]);
 
 	useEffect(() => {
-		// Build descs mới (chạy sau render → không warning)
 		const newDescs = new Map<string, HumanoidDescription>();
 		for (let i = 0; i < orderedKeys.size(); i++) {
 			const k = orderedKeys[i];
@@ -100,21 +95,15 @@ export function SaveUI() {
 			newDescs.set(k, desc);
 		}
 
-		// Cleanup descs cũ không còn dùng
-		for (const [k, oldDesc] of descsByKey) {
-			if (!newDescs.has(k)) pcall(() => oldDesc.Destroy());
-		}
-
+		for (const [k, oldDesc] of descsByKey) if (!newDescs.has(k)) pcall(() => oldDesc.Destroy());
 		setDescsByKey(newDescs);
 
-		// Cleanup khi unmount
 		return () => {
 			for (const [, d] of newDescs) pcall(() => d.Destroy());
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [buildSig]);
 
-	// Layout
 	const cols = 5;
 	const cellSize = rem(15);
 	const gap = rem(1);
@@ -122,20 +111,46 @@ export function SaveUI() {
 	const scrollBar = 8;
 	const gridWidth = cols * cellSize + (cols - 1) * gap;
 
-	// Handlers cho panel
 	function handleWear(k: string) {
-		const outfit = save.outfits[k] as Outfit | undefined;
-		if (!outfit) return;
-		// nếu server patch theo tên:
-		remotes.server.patchOutfitCurrent.fire(outfit.name);
-		setOpenKey(undefined);
+		const of = save.outfits[k];
+		if (!of) return;
+
+		// (A) Apply local cho mượt
+		const lp = Players.LocalPlayer!;
+		const hum = lp.Character?.FindFirstChildOfClass("Humanoid");
+		if (hum) {
+			const desc = buildDescriptionFromAssets(of.assets);
+			pcall(() => hum.ApplyDescription(desc));
+			pcall(() => desc.Destroy());
+		} else {
+			// apply khi CharacterAdded nếu đang respawn
+			const conn = lp.CharacterAdded.Connect((char) => {
+				const h = char?.FindFirstChildOfClass("Humanoid");
+				if (!h) return;
+				const desc = buildDescriptionFromAssets(of.assets);
+				pcall(() => h.ApplyDescription(desc));
+				pcall(() => desc.Destroy());
+				conn.Disconnect();
+			});
+		}
+
+		// (B) Fire server để replicate cho toàn bộ client
+		remotes.server.wearOutfit.fire(of.name, of.assets, true /* hard reset nếu muốn */);
+
+		// (optional) log client
+		print(`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true`);
 	}
 
 	function handlePublish(k: string) {
-		// ví dụ: mở trang save/publish của bạn
-		store.setMenuPage("saveui");
-		store.setShopOpen(false);
-		setOpenKey(undefined);
+		const of = save.outfits[k];
+		if (!of) return;
+		remotes.server.publishOutfit.fire(of.name, of.assets, of.snapshotThumb);
+	}
+
+	function handleRemove(k: string) {
+		const of = save.outfits[k];
+		if (!of) return;
+		remotes.server.deleteOutfit.fire(of.name);
 	}
 
 	return (
@@ -162,58 +177,67 @@ export function SaveUI() {
 				StartCorner={Enum.StartCorner.TopLeft}
 			/>
 
-			{orderedKeys.map((k) => {
-				const desc = descsByKey.get(k);
-				if (!desc) return undefined as unknown as React.Element;
+			{(() => {
+				const children: Record<string, React.Element> = {};
 
-				const isOpen = openKey === k;
+				for (let i = 0; i < orderedKeys.size(); i++) {
+					const k = orderedKeys[i];
+					const desc = descsByKey.get(k);
+					if (!desc) continue;
 
-				return (
-					<Frame
-						key={`of-${k}`}
+					const isOpen = openKey === k;
+
+					children[`of-${k}`] = (
+						<Frame
+							layoutOrder={i}
+							size={UDim2.fromOffset(cellSize, cellSize)}
+							backgroundTransparency={0.75}
+							clipsDescendants
+						>
+							<uicorner CornerRadius={new UDim(0, rem(2))} />
+							<CharField size={new UDim2(1, 0, 1, 0)} desc={desc} />
+
+							<Button
+								size={new UDim2(1, 0, 1, 0)}
+								backgroundTransparency={1}
+								active
+								zIndex={3}
+								onClick={() => setOpenKey(isOpen ? undefined : k)}
+							/>
+
+							<DisplaySaveOpt
+								open={isOpen}
+								cellW={cellSize}
+								onWear={() => handleWear(k)}
+								onPublish={() => handlePublish(k)}
+								onRemove={() => handleRemove(k)}
+							/>
+						</Frame>
+					);
+				}
+
+				children["plus"] = (
+					<Button
+						layoutOrder={9999}
 						size={UDim2.fromOffset(cellSize, cellSize)}
 						backgroundTransparency={0.75}
-						clipsDescendants // <-- thêm dòng này
+						onClick={() => {
+							store.setMenuPage("saveui");
+							store.setShopOpen(false);
+						}}
 					>
+						<Image
+							image={images.ui.plus_icon}
+							size={new UDim2(0.6, 0, 0.6, 0)}
+							anchorPoint={new Vector2(0.5, 0.5)}
+							position={new UDim2(0.5, 0, 0.5, 0)}
+						/>
 						<uicorner CornerRadius={new UDim(0, rem(2))} />
-						<CharField size={new UDim2(1, 0, 1, 0)} desc={desc} />
-
-						<Button
-							size={new UDim2(1, 0, 1, 0)}
-							backgroundTransparency={1}
-							active
-							zIndex={3}
-							onClick={() => setOpenKey(isOpen ? undefined : k)}
-						/>
-
-						<DisplaySaveOpt
-							open={isOpen}
-							cellW={cellSize}
-							onWear={() => handleWear(k)}
-							onPublish={() => handlePublish(k)}
-						/>
-					</Frame>
+					</Button>
 				);
-			})}
 
-			{/* Nút tạo outfit mới giữ nguyên */}
-			<Button
-				size={UDim2.fromOffset(cellSize, cellSize)}
-				backgroundTransparency={0.75}
-				layoutOrder={9999}
-				onClick={() => {
-					store.setMenuPage("saveui");
-					store.setShopOpen(false);
-				}}
-			>
-				<Image
-					image={images.ui.plus_icon}
-					size={new UDim2(0.6, 0, 0.6, 0)}
-					anchorPoint={new Vector2(0.5, 0.5)}
-					position={new UDim2(0.5, 0, 0.5, 0)}
-				/>
-				<uicorner CornerRadius={new UDim(0, rem(2))} />
-			</Button>
+				return children;
+			})()}
 		</scrollingframe>
 	);
 }

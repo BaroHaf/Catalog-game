@@ -1,8 +1,5 @@
-// client/components/saveui/utils/build-desc-from-assets.ts
 import { Players, MarketplaceService } from "@rbxts/services";
-import { getHDKeyForAssetType } from "client/components/shop/shopui/util/camerarotation";
-
-// Cache nhỏ để tránh gọi GetProductInfo lặp lại khi render nhiều preset
+import { getHDKeyForAssetType } from "../../shopui/util/camerarotation";
 const assetTypeCache = new Map<number, number>(); // id -> AssetTypeId
 
 function readAssetTypeId(id: number): number | undefined {
