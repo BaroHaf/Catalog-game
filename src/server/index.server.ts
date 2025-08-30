@@ -3,8 +3,10 @@ import { initOutfitDeltaService } from "./players/services/outfit-delta.services
 import { initOutfitsService } from "./players/services/outfits.services";
 import { initPublicOutfitsService } from "./players/services/publicOutfits.services";
 import { initAvatarWearService } from "./players/services/avatar.services";
+import { initEmoteAnimService } from "./players/services/emote-anim.services";
 initDataService();
 initOutfitDeltaService();
 initOutfitsService();
 initPublicOutfitsService();
 initAvatarWearService();
+initEmoteAnimService();

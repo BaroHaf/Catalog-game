@@ -1046,21 +1046,154 @@ export function getWornAssetTypeForId(assetId: number): Enum.AvatarAssetType | u
 	const d = DescCache ? DescCache : snapshotFromDesc(hum.GetAppliedDescription());
 
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
-	 const k = CLOTH_KEYS[i] as string;
-	 const v = (d as unknown as Record<string, unknown>)[k];
-	 if (typeOf(v) === "number" && (v as number) === assetId) {
-		 return FIELD_TO_ASSETTYPE[k];
-	 }
+		const k = CLOTH_KEYS[i] as string;
+		const v = (d as unknown as Record<string, unknown>)[k];
+		if (typeOf(v) === "number" && (v as number) === assetId) {
+			return FIELD_TO_ASSETTYPE[k];
+		}
 	}
 	for (let i = 0; i < ACCESSORY_KEYS.size(); i++) {
-	 const k = ACCESSORY_KEYS[i] as string;
-	 const v = (d as unknown as Record<string, unknown>)[k];
-	 if (typeOf(v) === "string" && (v as string) !== "") {
-		 for (const raw of (v as string).split(",")) {
-			 const n = tonumber(raw);
-			 if (n && n === assetId) return FIELD_TO_ASSETTYPE[k];
-		 }
-	 }
+		const k = ACCESSORY_KEYS[i] as string;
+		const v = (d as unknown as Record<string, unknown>)[k];
+		if (typeOf(v) === "string" && (v as string) !== "") {
+			for (const raw of (v as string).split(",")) {
+				const n = tonumber(raw);
+				if (n && n === assetId) return FIELD_TO_ASSETTYPE[k];
+			}
+		}
 	}
 	return undefined;
+}
+
+/* =========================
+   14) EMOTE UGC PLAYBACK (CLIENT)
+   ========================= */
+
+/* =========================
+   14) EMOTE UGC PLAYBACK (CLIENT)
+   ========================= */
+// Cache emoteId -> AnimationId
+const EmoteAnimIdCache = new Map<number, string>();
+// Mỗi humanoid chỉ giữ 1 track emote đang chạy để dừng dễ
+const EmoteTrackByHumanoid = new WeakMap<Humanoid, AnimationTrack>();
+// Request-id tăng dần để ghép response đúng
+let _REQ_SEQ = 0;
+function nextReqId() {
+	_REQ_SEQ += 1;
+	return _REQ_SEQ;
+}
+
+// Đợi server trả animId qua remote emoteAnimResponse (có timeout)
+function fetchEmoteAnimationId(emoteId: number, timeoutSec = 8): Promise<string> {
+	const cached = EmoteAnimIdCache.get(emoteId);
+	if (cached) return Promise.resolve(cached);
+
+	const reqId = nextReqId();
+	return new Promise((resolve, reject) => {
+		let done = false;
+
+		// ⬇️ remo connect -> trả về Cleanup (hàm). Gọi off() để hủy.
+		const off = remotes.client.emoteAnimResponse.connect((rid, eid, animId, err) => {
+			if (rid !== reqId) return; // không phải response của mình
+			done = true;
+			off();
+			if (err) return reject(err);
+			if (!animId) return reject("No AnimationId");
+			EmoteAnimIdCache.set(eid, animId);
+			resolve(animId);
+		});
+
+		task.delay(timeoutSec, () => {
+			if (!done) {
+				off(); // hủy listener khi timeout
+				reject(`Timeout waiting emote animId for ${emoteId}`);
+			}
+		});
+
+		remotes.server.requestEmoteAnim.fire(reqId, emoteId);
+	});
+}
+
+function getOrCreateAnimator(h: Humanoid): Animator {
+	let animator = h.FindFirstChildOfClass("Animator");
+	if (!animator) {
+		animator = new Instance("Animator");
+		animator.Parent = h;
+	}
+	return animator;
+}
+
+type TryOnEmoteOpts = {
+	priority?: Enum.AnimationPriority; // default Action
+	weight?: number; // default 1
+	fadeIn?: number; // default 0.15
+	looped?: boolean; // default true
+	stopOthers?: boolean; // default true
+};
+
+/** Play UGC emote lên TẤT CẢ Targets (viewport humanoids) */
+export async function tryOnEmote(emoteAssetId: number, opts?: TryOnEmoteOpts) {
+	if (emoteAssetId <= 0) return;
+
+	const options: Required<TryOnEmoteOpts> = {
+		priority: opts?.priority ?? Enum.AnimationPriority.Action,
+		weight: opts?.weight ?? 1,
+		fadeIn: opts?.fadeIn ?? 0.15,
+		looped: opts?.looped ?? true,
+		stopOthers: opts?.stopOthers ?? true,
+	};
+
+	enqueueOrRun(async () => {
+		if (Targets.size() === 0) return;
+
+		let animId: string;
+		try {
+			animId = await fetchEmoteAnimationId(emoteAssetId);
+		} catch (e) {
+			warn("[tryOnEmote] fetch failed:", e);
+			return;
+		}
+
+		for (let i = 0; i < Targets.size(); i++) {
+			const hum = Targets[i];
+			if (!hum || hum.Health <= 0) continue;
+
+			if (options.stopOthers) {
+				const old = EmoteTrackByHumanoid.get(hum);
+				if (old && old.IsPlaying) old.Stop(0.1);
+			}
+
+			const animator = getOrCreateAnimator(hum);
+			const anim = new Instance("Animation");
+			anim.AnimationId = animId;
+
+			let track: AnimationTrack | undefined;
+			const [ok, err] = pcall(() => (track = animator.LoadAnimation(anim)));
+			if (!ok || !track) {
+				warn("[tryOnEmote] LoadAnimation failed:", err);
+				continue;
+			}
+
+			track.Priority = options.priority;
+			track.Looped = options.looped;
+
+			EmoteTrackByHumanoid.set(hum, track);
+			// ⬇️ KHÔNG gán WeightCurrent (read-only). Truyền weight khi Play.
+			track.Play(options.fadeIn, options.weight);
+		}
+
+		// Emote có thể thay pose -> reframe nếu cần
+		requestReframe();
+	});
+}
+
+/** Dừng emote hiện tại trên tất cả Targets */
+export function stopEmote(fadeOut = 0.15) {
+	enqueueOrRun(() => {
+		for (let i = 0; i < Targets.size(); i++) {
+			const hum = Targets[i];
+			const tr = EmoteTrackByHumanoid.get(hum);
+			if (tr && tr.IsPlaying) tr.Stop(fadeOut);
+		}
+	});
 }

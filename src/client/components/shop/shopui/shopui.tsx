@@ -54,7 +54,6 @@ export function ShopUI() {
           new UDim2(0.5, 0, 1.5, 0), // offscreen dưới
           new UDim2(0.5, 0, 0.5, 0)  // center
         )}
-        backgroundColor={Color3.fromRGB(255, 255, 255)}
         cornerRadius={new UDim(0, rem(1))}
         backgroundTransparency={1}
       >

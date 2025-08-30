@@ -140,6 +140,7 @@ export const remotes = createRemotes({
 
 		// PUBLIC (server sẽ push full/patch/remove qua remote này)
 		publicOutfitsSync: remote<Client, [payload: PublicOutfitsPayload]>(), // NEW
+		emoteAnimResponse: remote<Client, [reqId: number, emoteId: number, animId?: string, error?: string]>(),
 	}),
 
 	server: namespace({
@@ -170,6 +171,6 @@ export const remotes = createRemotes({
 		publishOutfit: remote<Server, [name: string, assets: number[], snapshotThumb?: string]>(),
 		unpublishOutfit: remote<Server, [publicId: string]>(), // NEW: gỡ 1 public outfit theo id
 		wearOutfit: remote<Server, [name: string, assets: number[], hard?: boolean]>(), // NEW
-
+		requestEmoteAnim: remote<Server, [reqId: number, emoteId: number]>(),
 	}),
 });

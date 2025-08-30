@@ -1,60 +1,66 @@
+// src/shared/constants/constant.ts
+
 export interface Category {
 	name: string;
 	assetType?: Enum.AvatarAssetType;
 	children?: SubCategory[];
 }
-export const PARTS = [
-  { key: "All", label: "All" },
-  { key: "Head", label: "Head" },
-  { key: "LeftArm", label: "Left Arm" },
-  { key: "LeftLeg", label: "Left Leg" },
-  { key: "RightArm", label: "Right Arm" },
-  { key: "RightLeg", label: "Right Leg" },
-  { key: "Torso", label: "Torso" },
-];
+
 export interface SubCategory {
 	name: string;
-	// Tuỳ theo từng loại, bạn có thể lọc theo keyword hoặc assetType phụ
-	filterType?: "keyword" | "assetType"|"special";
+	/** "keyword": lọc theo từ khóa; "assetType": chọn đúng 1 AvatarAssetType; "special": panel đặc biệt */
+	filterType?: "keyword" | "assetType" | "special";
+	/** với assetType: có thể là key string ("Jacket") hoặc enum value (Enum.AvatarAssetType.Jacket) */
 	filterValue?: string | Enum.AvatarAssetType;
 }
 
+export const PARTS = [
+	{ key: "All", label: "All" },
+	{ key: "Head", label: "Head" },
+	{ key: "LeftArm", label: "Left Arm" },
+	{ key: "LeftLeg", label: "Left Leg" },
+	{ key: "RightArm", label: "Right Arm" },
+	{ key: "RightLeg", label: "Right Leg" },
+	{ key: "Torso", label: "Torso" },
+];
 
 export const CATEGORIES: Category[] = [
 	{ name: "Inventory" },
 	{ name: "Recent" },
 
+	/* ===== Hair ===== */
 	{
 		name: "Hair",
 		assetType: Enum.AvatarAssetType.HairAccessory,
 		children: [
 			{ name: "All" },
 			{ name: "Bangs", filterType: "keyword", filterValue: "bangs" },
-			{ name: "Extention", filterType: "keyword", filterValue: "extention" },
+			{ name: "Extension", filterType: "keyword", filterValue: "extension" },
 		],
 	},
 
+	/* ===== Clothing: classic + layered (assetType) ===== */
 	{
 		name: "Clothing",
-		assetType: Enum.AvatarAssetType.Shirt,
+		assetType: Enum.AvatarAssetType.Shirt, // mặc định khi vào tab Clothing
 		children: [
 			{ name: "All" },
+
+			// Classic
 			{ name: "Classic T-Shirt", filterType: "assetType", filterValue: "TShirt" },
 			{ name: "Classic Shirt", filterType: "assetType", filterValue: "Shirt" },
-			{ name: "Classic Pant", filterType: "assetType", filterValue: "Pants" },
-			{ name: "Classic", filterType: "keyword", filterValue: "classic" },
-			{ name: "Layered", filterType: "keyword", filterValue: "layered" },
-			{ name: "T-Shirt", filterType: "keyword", filterValue: "t-shirt" },
-			{ name: "Pant", filterType: "keyword", filterValue: "pant" },
-			{ name: "Jackets", filterType: "keyword", filterValue: "jacket" },
-			{ name: "Shirts", filterType: "keyword", filterValue: "shirt" },
-			{ name: "Sweaters", filterType: "keyword", filterValue: "sweater" },
-			{ name: "Shorts", filterType: "keyword", filterValue: "shorts" },
-			{ name: "Dress/Skirt", filterType: "keyword", filterValue: "dress skirt" },
-			{ name: "Shoes", filterType: "keyword", filterValue: "shoes" },
+			{ name: "Classic Pants", filterType: "assetType", filterValue: "Pants" },
+
+			{ name: "Jackets", filterType: "assetType", filterValue: "JacketAccessory" },
+			{ name: "Sweaters", filterType: "assetType", filterValue: "SweaterAccessory" },
+			{ name: "Shorts", filterType: "assetType", filterValue: "ShortsAccessory" },
+			{ name: "Dress/Skirt", filterType: "assetType", filterValue: "DressSkirtAccessory" },
+			{ name: "Left Shoe", filterType: "assetType", filterValue: "LeftShoeAccessory" },
+			{ name: "Right Shoe", filterType: "assetType", filterValue: "RightShoeAccessory" },
 		],
 	},
 
+	/* ===== Accessories ===== */
 	{
 		name: "Accessories",
 		assetType: Enum.AvatarAssetType.BackAccessory,
@@ -67,16 +73,14 @@ export const CATEGORIES: Category[] = [
 			{ name: "Front", filterType: "assetType", filterValue: Enum.AvatarAssetType.FrontAccessory },
 			{ name: "Back", filterType: "assetType", filterValue: Enum.AvatarAssetType.BackAccessory },
 			{ name: "Waist", filterType: "assetType", filterValue: Enum.AvatarAssetType.WaistAccessory },
-			{ name: "Handeld", filterType: "keyword", filterValue: "handheld" },
+			{ name: "Handheld", filterType: "keyword", filterValue: "handheld" },
 			{ name: "Effects", filterType: "keyword", filterValue: "effect" },
 		],
 	},
 
-	{
-		name: "Faces",
-		assetType: Enum.AvatarAssetType.Face,
-	},
+	{ name: "Faces", assetType: Enum.AvatarAssetType.Face },
 
+	/* ===== Body ===== */
 	{
 		name: "Body",
 		assetType: Enum.AvatarAssetType.Torso,
@@ -90,10 +94,7 @@ export const CATEGORIES: Category[] = [
 		],
 	},
 
-	{
-		name: "Heads",
-		assetType: Enum.AvatarAssetType.Head,
-	},
+	{ name: "Heads", assetType: Enum.AvatarAssetType.Head },
 
 	{
 		name: "Collectibles",
@@ -105,15 +106,10 @@ export const CATEGORIES: Category[] = [
 		],
 	},
 
-	{
-		name: "Gear",
-		assetType: Enum.AvatarAssetType.Gear,
-	},
+	/* ===== Emotes only (giữ lại) ===== */
+	{ name: "Emotes", assetType: Enum.AvatarAssetType.EmoteAnimation },
 
-	{
-		name: "Featured",
-		assetType: Enum.AvatarAssetType.ShoulderAccessory,
-	},
-
+	{ name: "Gear", assetType: Enum.AvatarAssetType.Gear },
+	{ name: "Featured", assetType: Enum.AvatarAssetType.ShoulderAccessory },
 	{ name: "Combos" },
 ];

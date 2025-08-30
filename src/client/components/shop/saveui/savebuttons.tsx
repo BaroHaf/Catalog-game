@@ -7,7 +7,6 @@ import { images } from "shared/assets";
 import { remotes } from "shared/remotes";
 import { getCurrentHumanoidAssets } from "client/components/shop/shopui/util/camerarotation";
 import { Players } from "@rbxts/services";
-
 function collectAssetIdsFromDesc(d: HumanoidDescription): number[] {
   const out = new Array<number>();
 

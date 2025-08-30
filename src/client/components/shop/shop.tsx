@@ -19,10 +19,8 @@ export function Shop() {
 
   return (
     <>
-      {/* Ẩn khi mở và đang ở trang 'shop' */}
       {!(isOpen && showShop) && <CartUI />}
 
-      {/* Mount theo page để giảm cost khi chuyển trang */}
       {showShop && (
         <ShopContainer page="shop" unmountDelay={0.35}>
           <ShopUI />
@@ -39,7 +37,6 @@ export function Shop() {
           <ComUI />
         </ShopContainer>
       )}
-      {/* Khi shop đóng và đang ở trang saveui -> hiện nút ngay */}
       {!isOpen && menuPage === "saveui" && <Savebuttonui />}
 
       <Otherfeature />

@@ -11,16 +11,16 @@ interface Props {
   open: boolean;
   cellW: number;
   onWear: () => void;
-  onPublish: () => void;
+  onPublish: () => void;   // toggle publish/unpublish
   onRemove: () => void;
+  published?: boolean;     // ✅ thêm prop
 }
 
-export function DisplaySaveOpt({ open, cellW, onWear, onPublish, onRemove }: Props) {
+export function DisplaySaveOpt({ open, cellW, onWear, onPublish, onRemove, published }: Props) {
   const rem = useRem();
 
   // ---- helpers
   const clampSafe = (v: number, lo: number, hi: number) => {
-    // đảm bảo lo <= hi để tránh lỗi clamp
     if (hi < lo) {
       const t = lo; lo = hi; hi = t;
     }
@@ -33,9 +33,8 @@ export function DisplaySaveOpt({ open, cellW, onWear, onPublish, onRemove }: Pro
   const gapPx = clampSafe(math.floor(cellW * 0.06), rem(0.6), rem(1.2));
 
   const maxPanelH = math.max(0, cellW - rem(2));
-  // 3 nút => 2 khoảng cách
   const rawMaxBtnH = math.floor((maxPanelH - gapPx * 2) / 3);
-  const maxBtnH = math.max(rem(4), rawMaxBtnH); // đặt sàn nhỏ để không âm
+  const maxBtnH = math.max(rem(4), rawMaxBtnH);
 
   const btnHeightBase = math.floor(cellW * 0.28);
   const btnHeight = clampSafe(btnHeightBase, rem(6), maxBtnH);
@@ -71,8 +70,6 @@ export function DisplaySaveOpt({ open, cellW, onWear, onPublish, onRemove }: Pro
 
   const pos = y.map((v: number) => new UDim2(0, 0, v, 0));
   const fade = a.map((x: number) => math.clamp(x, 0, 1));
-
-  // tổng chiều cao panel (không âm)
   const panelH = math.max(0, btnHeight * 3 + gapPx * 2);
 
   return (
@@ -105,16 +102,16 @@ export function DisplaySaveOpt({ open, cellW, onWear, onPublish, onRemove }: Pro
           />
         </Button>
 
-        {/* PUBLISH */}
+        {/* PUBLISH / UNPUBLISH */}
         <Button
           size={new UDim2(mainBtnWidthScale, 0, 0, btnHeight)}
-          backgroundColor={Color3.fromRGB(255, 230, 0)}
+          backgroundColor={published ? Color3.fromRGB(255, 90, 90) : Color3.fromRGB(255, 230, 0)}
           zIndex={6}
           onClick={onPublish}
         >
           <uicorner CornerRadius={new UDim(0, cornerPx)} />
           <Text
-            text="PUBLISH"
+            text={published ? "UNPUBLISH" : "PUBLISH"}
             font={fonts.JosefinSans.bold}
             size={new UDim2(1, 0, 1, 0)}
             zIndex={7}
