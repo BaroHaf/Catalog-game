@@ -1,6 +1,7 @@
+// src/server/players/services/publicOutfits.services.ts
 import { createCollection } from "@rbxts/lapis";
 import { Players, RunService } from "@rbxts/services";
-import { remotes, type PublicOutfit } from "shared/remotes";
+import { remotes, type PublicOutfit, BodyColorsData } from "shared/remotes";
 
 /* ===== Collection riêng cho PUBLIC ===== */
 type PublicDoc = Record<string, PublicOutfit>;
@@ -24,8 +25,7 @@ function randomBase62(len = 8) {
 	return out.join("");
 }
 function uniqueId(existing: Record<string, unknown>, prefer = 8) {
-	let id = randomBase62(prefer),
-		g = 0;
+	let id = randomBase62(prefer), g = 0;
 	while (existing[id] !== undefined && g < 500) {
 		id = randomBase62(math.clamp(prefer + math.floor(g / 50), 1, 10));
 		g++;
@@ -59,9 +59,8 @@ export async function initPublicOutfitsService() {
 		remotes.client.publicOutfitsSync.fire(plr, { full: true, data: cache });
 	});
 
-	/* ---------- PUBLISH (KHỚP REMOTES: chỉ nhận name) ---------- */
-	// outfitspublish (server)
-	remotes.server.publishOutfit.connect(async (player, name, assets, snapshotThumb) => {
+	/* ---------- PUBLISH (KHỚP REMOTES: nhận name, assets, snapshotThumb?, colors?) ---------- */
+	remotes.server.publishOutfit.connect(async (player, name, assets, snapshotThumb?, colors?: BodyColorsData) => {
 		task.spawn(async () => {
 			try {
 				await ensureDoc();
@@ -86,6 +85,7 @@ export async function initPublicOutfitsService() {
 					assets: clean,
 					snapshotThumb,
 					updatedAt: os.time(),
+					colors, // LƯU MÀU
 				};
 
 				cache = { ...cache, [id]: pub };
@@ -97,23 +97,25 @@ export async function initPublicOutfitsService() {
 				}
 
 				// === LOG: total counts ===
-				let total = 0,
-					ownerTotal = 0;
+				let total = 0, ownerTotal = 0;
 				for (const [, v] of pairs(cache)) {
 					total++;
 					if ((v as PublicOutfit).ownerId === player.UserId) ownerTotal++;
 				}
 				print(
-					`[Public] Published "${name}" by ${player.Name} -> ${id} | assets=${clean.size()} | totalPublic=${total} | ownerPublic=${ownerTotal}`,
+					`[Public] Published "${name}" by ${player.Name} -> ${id} | assets=${clean.size()} | colors=${colors !== undefined} | totalPublic=${total} | ownerPublic=${ownerTotal}`,
 				);
 			} catch (e) {
 				warn(`[Public] publishOutfit error: ${e}`);
 			}
 		});
 	});
+
+	/* ---------- GET FULL ---------- */
 	remotes.server.getPublicOutfits.connect((player) => {
 		remotes.client.publicOutfitsSync.fire(player, { full: true, data: cache });
 	});
+
 	/* ---------- UNPUBLISH ---------- */
 	remotes.server.unpublishOutfit.connect(async (player, publicId) => {
 		task.spawn(async () => {

@@ -6,6 +6,7 @@ import { Image } from "client/components/ui/image";
 import { images } from "shared/assets";
 import { Button } from "client/components/ui/button";
 import { CharField } from "./charfield";
+import { applyDescriptionToAllTargets } from "../shopui/util/camerarotation";
 import {
 	remotes,
 	type Outfit,
@@ -14,11 +15,12 @@ import {
 	type PublicOutfit,
 	type PublicOutfitsPayload,
 } from "shared/remotes";
-import { buildDescriptionFromAssets } from "client/components/shop/saveui/utils/build-desc-from-assets";
+import { buildDescriptionFromOutfit } from "./utils/build-desc-from-assets";
 import { DisplaySaveOpt } from "./displaysaveopt";
 import { Players } from "@rbxts/services";
 import { Closebutsaveui } from "./closebut";
 import { PublicIdBar } from "./publicidbar";
+
 export function SaveUI() {
 	const rem = useRem();
 	const store = useStore();
@@ -89,7 +91,11 @@ export function SaveUI() {
 			const k = orderedKeys[i];
 			const of = save.outfits[k] as Outfit | undefined;
 			const assets = of?.assets ?? [];
-			parts.push(`${k}:${assets.join(",")}`);
+			const c = of?.colors;
+			const cSig = c
+				? `c:${c.head.join("-")}/${c.torso.join("-")}/${c.leftArm.join("-")}/${c.rightArm.join("-")}/${c.leftLeg.join("-")}/${c.rightLeg.join("-")}`
+				: "c:-";
+			parts.push(`${k}:${assets.join(",")}|${cSig}`);
 		}
 		return parts.join("|");
 	}, [orderedKeys, save]);
@@ -101,7 +107,7 @@ export function SaveUI() {
 			const of = save.outfits[k] as Outfit | undefined;
 			if (!of) continue;
 
-			const desc = buildDescriptionFromAssets(of.assets);
+			const desc = buildDescriptionFromOutfit(of);
 			newDescs.set(k, desc);
 		}
 
@@ -117,7 +123,6 @@ export function SaveUI() {
 	/* =======================
 	 * B) PUBLIC (global): map theo TÊN outfit
 	 * ======================= */
-	// pubByName: outfitName -> publicId (chỉ của chính LocalPlayer)
 	const [pubByName, setPubByName] = useState<Record<string, string>>({});
 
 	useEffect(() => {
@@ -125,7 +130,6 @@ export function SaveUI() {
 
 		const applyPayload = (payload: PublicOutfitsPayload) => {
 			setPubByName((prev) => {
-				// clone
 				let pubMap: Record<string, string> = {};
 				for (const [nm, pid] of pairs(prev)) pubMap[nm as string] = pid as string;
 
@@ -190,27 +194,35 @@ export function SaveUI() {
 		const of = save.outfits[k];
 		if (!of) return;
 
-		// Local preview mượt
+		// Local preview mượt + đồng bộ viewport
 		const lp = Players.LocalPlayer!;
 		const hum = lp.Character?.FindFirstChildOfClass("Humanoid");
+
 		if (hum) {
-			const desc = buildDescriptionFromAssets(of.assets);
+			const desc = buildDescriptionFromOutfit(of);
+			// 1) Apply cho nhân vật thật
 			pcall(() => hum.ApplyDescription(desc));
+			// 2) Đồng bộ tất cả viewport humanoids + cập nhật DescCache
+			applyDescriptionToAllTargets(desc, true);
+			// 3) cleanup
 			pcall(() => desc.Destroy());
 		} else {
 			const conn = lp.CharacterAdded.Connect((char) => {
 				const h = char?.FindFirstChildOfClass("Humanoid");
 				if (!h) return;
-				const desc = buildDescriptionFromAssets(of.assets);
+				const desc = buildDescriptionFromOutfit(of);
 				pcall(() => h.ApplyDescription(desc));
+				applyDescriptionToAllTargets(desc, true);
 				pcall(() => desc.Destroy());
 				conn.Disconnect();
 			});
 		}
 
-		// Replicate toàn server
-		remotes.server.wearOutfit.fire(of.name, of.assets, true);
-		print(`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true`);
+		// Replicate toàn server (kèm colors)
+		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors);
+		print(
+			`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`,
+		);
 	}
 
 	function handlePublishToggle(k: string) {
@@ -232,8 +244,8 @@ export function SaveUI() {
 			});
 			print(`[SaveUI] unpublish → ${pid} (${of.name})`);
 		} else {
-			// Publish
-			remotes.server.publishOutfit.fire(of.name, of.assets, of.snapshotThumb);
+			// Publish (kèm colors)
+			remotes.server.publishOutfit.fire(of.name, of.assets, of.snapshotThumb, of.colors);
 			// Optimistic mark (pending id)
 			setPubByName((prev) => {
 				const cloneMap: Record<string, string> = {};
@@ -334,7 +346,7 @@ export function SaveUI() {
 									published={published}
 								/>
 
-								{/* Public ID (read-only textbox để có thể chọn & copy thủ công) */}
+								{/* Public ID */}
 								<PublicIdBar id={pid} rem={rem} />
 							</Frame>
 						);

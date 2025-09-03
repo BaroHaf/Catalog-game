@@ -18,12 +18,24 @@ export type InventorySyncPayload = {
 	remove?: number[];
 };
 
-/* ========= OUTFITS (Preset lưu) - V1 (GIỮ NGUYÊN) ========= */
+/* ========= BODY COLORS (RGB an toàn Datastore) ========= */
+export type RGB = [number, number, number]; // 0..255
+export type BodyColorsData = {
+	head: RGB;
+	torso: RGB;
+	leftArm: RGB;
+	rightArm: RGB;
+	leftLeg: RGB;
+	rightLeg: RGB;
+};
+
+/* ========= OUTFITS (Preset lưu) - V1 (GIỮ NGUYÊN API, MỞ RỘNG TYPE) ========= */
 export type Outfit = {
-	name: string; // tên hiển thị
-	assets: number[]; // danh sách AvatarAssetId
+	name: string;            // tên hiển thị
+	assets: number[];        // danh sách AvatarAssetId
 	snapshotThumb?: string;
-	updatedAt: number; // os.time()
+	updatedAt: number;       // os.time()
+	colors?: BodyColorsData; // NEW: màu body (RGB) – optional để tương thích dữ liệu cũ
 };
 
 export type OutfitSave = {
@@ -43,7 +55,9 @@ export type OutfitsSyncPayload =
 export type GlobalOutfitsFull = Record<number, OutfitSave>; // ownerId -> OutfitSave
 
 /* ========= OUTFIT DELTA (gửi liên tục khi kéo/mặc/cởi) ========= */
-/** Chỉ gửi phần vừa đổi; `hard=true` cho mặc/cởi/reset (server sẽ ApplyDescriptionReset ở nhịp đó) */
+/** Chỉ gửi phần vừa đổi; `hard=true` cho mặc/cởi/reset (server sẽ ApplyDescriptionReset ở nhịp đó)
+ *  Lưu ý: Delta có thể dùng Color3 vì không ghi vào Datastore. Dữ liệu persist dùng BodyColorsData (RGB).
+ */
 export type OutfitDelta = Partial<{
 	// clothes (id) + face/tshirt
 	Shirt: number;
@@ -61,7 +75,7 @@ export type OutfitDelta = Partial<{
 	BackAccessory: string;
 	WaistAccessory: string;
 
-	// body colors
+	// body colors (runtime only)
 	HeadColor: Color3;
 	TorsoColor: Color3;
 	LeftArmColor: Color3;
@@ -84,14 +98,15 @@ export type OutfitDelta = Partial<{
 /**
  * V2 dùng primary key là `id` (base62, 1–10 ký tự).
  * Cho phép clear data tạm thời qua remote `clearMyOutfits`.
- * Có thể dùng song song với V1; khi bạn migrate xong thì chỉ dùng V2.
+ * Có thể dùng song song với V1; khi migrate xong thì chỉ dùng V2.
  */
 export type OutfitV2 = {
-	id: string; // primary key (1–10 ký tự a-zA-Z0-9)
-	name: string; // tên hiển thị
-	assets: number[]; // danh sách AvatarAssetId
+	id: string;              // primary key (1–10 ký tự a-zA-Z0-9)
+	name: string;            // tên hiển thị
+	assets: number[];        // danh sách AvatarAssetId
 	snapshotThumb?: string;
-	updatedAt: number; // os.time()
+	updatedAt: number;       // os.time()
+	colors?: BodyColorsData; // NEW
 };
 
 export type OutfitSaveV2 = {
@@ -118,6 +133,7 @@ export type PublicOutfit = {
 	assets: number[]; // asset ids
 	snapshotThumb?: string;
 	updatedAt: number; // os.time()
+	colors?: BodyColorsData; // NEW
 };
 
 export type PublicOutfitsPayload =
@@ -150,11 +166,11 @@ export const remotes = createRemotes({
 		requestCart: remote<Server, []>(),
 		checkoutRequest: remote<Server, []>(),
 
-		// OUTFITS – REST-ish (V1 – giữ nguyên)
+		// OUTFITS – REST-ish (V1 – giữ nguyên TÊN HÀM, mở rộng tham số tuỳ chọn)
 		/** GET outfits của chính user */
 		getOutfits: remote<Server, []>(),
 		/** POST tạo/cập nhật 1 outfit */
-		postOutfit: remote<Server, [name: string, assets: number[], snapshotThumb?: string]>(),
+		postOutfit: remote<Server, [name: string, assets: number[], snapshotThumb?: string, colors?: BodyColorsData]>(),
 		/** DELETE 1 outfit */
 		deleteOutfit: remote<Server, [name: string]>(),
 		/** PATCH đổi tên outfit */
@@ -168,9 +184,9 @@ export const remotes = createRemotes({
 		// ========= PUBLIC (tối thiểu) =========
 		getPublicOutfits: remote<Server, []>(), // NEW
 
-		publishOutfit: remote<Server, [name: string, assets: number[], snapshotThumb?: string]>(),
+		publishOutfit: remote<Server, [name: string, assets: number[], snapshotThumb?: string, colors?: BodyColorsData]>(),
 		unpublishOutfit: remote<Server, [publicId: string]>(), // NEW: gỡ 1 public outfit theo id
-		wearOutfit: remote<Server, [name: string, assets: number[], hard?: boolean]>(), // NEW
+		wearOutfit: remote<Server, [name: string, assets: number[], hard?: boolean, colors?: BodyColorsData]>(), // NEW
 		requestEmoteAnim: remote<Server, [reqId: number, emoteId: number]>(),
 	}),
 });

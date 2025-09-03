@@ -1113,6 +1113,24 @@ function fetchEmoteAnimationId(emoteId: number, timeoutSec = 8): Promise<string>
 		remotes.server.requestEmoteAnim.fire(reqId, emoteId);
 	});
 }
+// === ADD: public helpers for viewport sync ===============================
+
+/** Apply 1 HumanoidDescription lên TẤT CẢ viewport humanoids + update DescCache.
+ *  hard=true nếu muốn reset outfit (giống ApplyDescriptionReset) */
+export function applyDescriptionToAllTargets(desc: HumanoidDescription, hard = false) {
+  // broadcastApplyFrom đã có sẵn trong file: nó persist DescCache,
+  // apply lên mọi Targets, reframe camera và notify UI.
+  broadcastApplyFrom(desc, hard);
+}
+
+/** Đồng bộ từ nhân vật thật của LocalPlayer sang toàn bộ viewport (tiện dùng sau khi Wear). */
+export function syncFromLocalCharacter(hard = false) {
+  const lp = Players.LocalPlayer;
+  const hum = lp?.Character?.FindFirstChildOfClass("Humanoid");
+  if (!hum) return;
+  const d = hum.GetAppliedDescription();
+  applyDescriptionToAllTargets(d, hard);
+}
 
 function getOrCreateAnimator(h: Humanoid): Animator {
 	let animator = h.FindFirstChildOfClass("Animator");

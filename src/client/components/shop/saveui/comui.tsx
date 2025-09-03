@@ -4,7 +4,6 @@ import { Frame } from "client/components/ui/frame";
 import { useRem } from "client/hooks";
 import { remotes, type PublicOutfit, type PublicOutfitsPayload } from "shared/remotes";
 import { CharField } from "./charfield";
-import { buildDescriptionFromAssets } from "./utils/build-desc-from-assets";
 import { Closebutsaveui } from "./closebut";
 import { Viewportui } from "../shopui/displayviewportui";
 import { TextField } from "client/components/ui/text-field";
@@ -15,11 +14,12 @@ import { Image } from "client/components/ui/image";
 import { Button } from "client/components/ui/button";
 import { DisplayComopt } from "./displaycomopt";
 import { Players } from "@rbxts/services";
+import { buildDescriptionFromOutfit } from "./utils/build-desc-from-assets";
+import { applyDescriptionToAllTargets } from "../shopui/util/camerarotation";
 
 export function ComUI(): JSX.Element {
 	const rem = useRem();
 
-	// layout constants
 	const gap = rem(1);
 	const sidePad = rem(1);
 	const scrollBar = 8;
@@ -80,12 +80,12 @@ export function ComUI(): JSX.Element {
 		return arr;
 	}, [outfits]);
 
-	// Build & own HumanoidDescriptions (tạo một lần per render cycle)
+	// Build & own HumanoidDescriptions (tạo một lần per render cycle) — DÙNG MÀU
 	const descMap = useMemo(() => {
 		const m = new Map<string, HumanoidDescription>();
 		for (const id of orderedKeys) {
 			const of = outfits[id];
-			if (of) m.set(id, buildDescriptionFromAssets(of.assets));
+			if (of) m.set(id, buildDescriptionFromOutfit(of as unknown as PublicOutfit));
 		}
 		return m;
 	}, [orderedKeys, outfits]);
@@ -125,11 +125,15 @@ export function ComUI(): JSX.Element {
 		const of = outfits[id];
 		if (!of) return;
 
-		// Local preview
+		// Local preview (áp đúng colors nếu có) + đồng bộ viewport
 		const lp = Players.LocalPlayer!;
 		const applyTo = (h: Humanoid) => {
-			const desc = buildDescriptionFromAssets(of.assets);
+			const desc = buildDescriptionFromOutfit(of as unknown as PublicOutfit);
+			// 1) Apply cho nhân vật thật
 			pcall(() => h.ApplyDescription(desc));
+			// 2) Đồng bộ TẤT CẢ viewport humanoids + cập nhật DescCache
+			applyDescriptionToAllTargets(desc, true);
+			// 3) cleanup
 			pcall(() => desc.Destroy());
 		};
 
@@ -144,9 +148,11 @@ export function ComUI(): JSX.Element {
 			});
 		}
 
-		// Replicate toàn server (giống SaveUI)
-		remotes.server.wearOutfit.fire(of.name, of.assets, true);
-		print(`[ComUI] wear public → id=${id} | name="${of.name}" | assets=${of.assets.size()} | hard=true`);
+		// Replicate toàn server (KÈM COLORS)
+		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors);
+		print(
+			`[ComUI] wear public → id=${id} | name="${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`,
+		);
 	}
 
 	// UI
@@ -188,20 +194,12 @@ export function ComUI(): JSX.Element {
 					/>
 					<uilistlayout FillDirection={"Horizontal"} VerticalAlignment={"Center"} />
 
-					<Frame
-						size={new UDim2(0, rem(50), 1, -rem(1))}
-						backgroundTransparency={0}
-						backgroundColor={Color3.fromRGB(68, 66, 66)}
-					>
+					<Frame size={new UDim2(0, rem(50), 1, -rem(1))} backgroundTransparency={0} backgroundColor={Color3.fromRGB(68, 66, 66)}>
 						<uicorner CornerRadius={new UDim(0, 15)} />
 						<TextField
 							text={query}
-							change={{
-								Text: (rbx) => setQuery((rbx as TextBox).Text),
-							}}
-							event={{
-								FocusLost: (rbx, enterPressed) => onSubmitFilter(enterPressed, rbx as TextBox),
-							}}
+							change={{ Text: (rbx) => setQuery((rbx as TextBox).Text) }}
+							event={{ FocusLost: (rbx, enterPressed) => onSubmitFilter(enterPressed, rbx as TextBox) }}
 							clearTextOnFocus={false}
 							placeholderText="Enter ID..."
 							placeholderColor={palette.black.Lerp(palette.white, 0.6)}
@@ -286,11 +284,7 @@ export function ComUI(): JSX.Element {
 									/>
 
 									{/* Options for community item */}
-									<DisplayComopt
-										open={isOpen}
-										cellW={cellSize}
-										onWear={() => handleWear(id)}
-									/>
+									<DisplayComopt open={isOpen} cellW={cellSize} onWear={() => handleWear(id)} />
 								</Frame>
 							);
 						}
