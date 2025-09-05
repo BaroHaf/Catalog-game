@@ -14,7 +14,6 @@ import { useSelector } from "@rbxts/react-reflex";
 import { Button } from "client/components/ui/button";
 import type { SubPageFilterType } from "client/store/shop/shop-slice";
 
-
 export function Displaysearch() {
 	const rem = useRem();
 	const scrollRef = useRef<ScrollingFrame>();
@@ -153,13 +152,12 @@ export function Displaysearch() {
 								backgroundColor={palette.white} // hoặc để transparent như bên category
 								onClick={() => {
 									store.setKeyword("");
-
 									if (child.name === "All") {
 										store.setSubpage({ filterType: "", value: "" });
 									} else {
 										store.setSubpage({
-											filterType: (child.filterType ?? "") as SubPageFilterType, // đã cho phép "special"
-											value: tostring(child.filterValue ?? ""),
+											filterType: (child.filterType ?? "") as SubPageFilterType,
+											value: (child.filterValue as string) ?? "", // KHÔNG tostring()
 										});
 									}
 								}}

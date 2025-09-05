@@ -14,7 +14,7 @@ interface SquareBounceLoaderProps {
 }
 
 export function SquareLoader({
-  sizeRem = 20,
+  sizeRem = 5,
   color = new Color3(1, 1, 1),
   strokeThickness = 2,
   corner = 8,
@@ -90,12 +90,11 @@ export function SquareLoader({
   }, []);
 
   const size = new UDim2(0, rem(sizeRem), 0, rem(sizeRem));
-  const anchor = new Vector2(0.5, 0.5);
 
   return (
     <frame
       BackgroundTransparency={1}
-      AnchorPoint={anchor}
+      AnchorPoint={new Vector2(0.5, 0.5)}
       Size={size}
       Position={new UDim2(0.5, 0, 0.5, 0)}
       Rotation={rot}

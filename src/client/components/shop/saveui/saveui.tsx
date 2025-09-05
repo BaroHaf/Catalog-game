@@ -1,5 +1,5 @@
 // src/client/components/shop/saveui/saveui.tsx
-import React, { useEffect, useMemo, useState } from "@rbxts/react";
+import React, { useEffect, useMemo, useRef, useState } from "@rbxts/react"; // ★ useRef
 import { Frame } from "client/components/ui/frame";
 import { useRem, useStore } from "client/hooks";
 import { Image } from "client/components/ui/image";
@@ -20,6 +20,10 @@ import { DisplaySaveOpt } from "./displaysaveopt";
 import { Players } from "@rbxts/services";
 import { Closebutsaveui } from "./closebut";
 import { PublicIdBar } from "./publicidbar";
+import { SquareLoader } from "client/components/ui/loading"; // ★
+
+// ★ Giữ cảm giác như Displayitem
+const MIN_LOADING = 2;
 
 export function SaveUI() {
 	const rem = useRem();
@@ -28,14 +32,31 @@ export function SaveUI() {
 	const [save, setSave] = useState<OutfitSave>({ outfits: {}, current: undefined });
 	const [openKey, setOpenKey] = useState<string | undefined>(undefined);
 
+	// ★ Loading state & timing
+	const [isInitialLoading, setIsInitialLoading] = useState(false);
+	const loadStartRef = useRef<number>(0);
+	const firstPayloadSeenRef = useRef(false);
+
+	const finishLoadingAfterMinDelay = () => {
+		const elapsed = time() - loadStartRef.current;
+		const remain = math.max(0, MIN_LOADING - elapsed);
+		task.delay(remain, () => setIsInitialLoading(false));
+	};
+
 	/* =======================
 	 * A) OUTFITS (private)
 	 * ======================= */
 	useEffect(() => {
+		// ★ Bắt đầu loading ngay khi ask server
+		setIsInitialLoading(true);
+		loadStartRef.current = time();
+
 		const disconnect = remotes.client.outfitsSync.connect((payload: OutfitsSyncPayload) => {
 			task.defer(() => {
 				if ("full" in payload && payload.full) {
 					setSave(() => payload.data ?? { outfits: {}, current: undefined });
+					// ★ Đánh dấu đã nhận payload đầu, nhưng đợi build desc xong mới tắt loading (xem effect bên dưới)
+					firstPayloadSeenRef.current = true;
 					return;
 				}
 				setSave((prev) => {
@@ -62,6 +83,8 @@ export function SaveUI() {
 						if (p.current !== undefined) localSave.current = p.current;
 					}
 
+					// ★ Nhận được bất kỳ payload nào cũng coi là đã “có dữ liệu”
+					firstPayloadSeenRef.current = true;
 					return localSave;
 				});
 			});
@@ -114,6 +137,9 @@ export function SaveUI() {
 		for (const [k, oldDesc] of descsByKey) if (!newDescs.has(k)) pcall(() => oldDesc.Destroy());
 		setDescsByKey(newDescs);
 
+		// ★ Khi đã nhận payload đầu tiên và build xong descs đợt đầu → tắt loader (sau MIN_LOADING)
+		if (firstPayloadSeenRef.current) finishLoadingAfterMinDelay();
+
 		return () => {
 			for (const [, d] of newDescs) pcall(() => d.Destroy());
 		};
@@ -121,7 +147,7 @@ export function SaveUI() {
 	}, [buildSig]);
 
 	/* =======================
-	 * B) PUBLIC (global): map theo TÊN outfit
+	 * B) PUBLIC (global)
 	 * ======================= */
 	const [pubByName, setPubByName] = useState<Record<string, string>>({});
 
@@ -194,17 +220,13 @@ export function SaveUI() {
 		const of = save.outfits[k];
 		if (!of) return;
 
-		// Local preview mượt + đồng bộ viewport
 		const lp = Players.LocalPlayer!;
 		const hum = lp.Character?.FindFirstChildOfClass("Humanoid");
 
 		if (hum) {
 			const desc = buildDescriptionFromOutfit(of);
-			// 1) Apply cho nhân vật thật
 			pcall(() => hum.ApplyDescription(desc));
-			// 2) Đồng bộ tất cả viewport humanoids + cập nhật DescCache
 			applyDescriptionToAllTargets(desc, true);
-			// 3) cleanup
 			pcall(() => desc.Destroy());
 		} else {
 			const conn = lp.CharacterAdded.Connect((char) => {
@@ -218,11 +240,8 @@ export function SaveUI() {
 			});
 		}
 
-		// Replicate toàn server (kèm colors)
 		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors);
-		print(
-			`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`,
-		);
+		print(`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`);
 	}
 
 	function handlePublishToggle(k: string) {
@@ -232,9 +251,7 @@ export function SaveUI() {
 		const pid = getOutfitPublicId(k);
 
 		if (pid) {
-			// Unpublish
 			remotes.server.unpublishOutfit.fire(pid);
-			// Optimistic remove theo TÊN
 			setPubByName((prev) => {
 				const cloneMap: Record<string, string> = {};
 				for (const [nm, id] of pairs(prev)) {
@@ -244,9 +261,7 @@ export function SaveUI() {
 			});
 			print(`[SaveUI] unpublish → ${pid} (${of.name})`);
 		} else {
-			// Publish (kèm colors)
 			remotes.server.publishOutfit.fire(of.name, of.assets, of.snapshotThumb, of.colors);
-			// Optimistic mark (pending id)
 			setPubByName((prev) => {
 				const cloneMap: Record<string, string> = {};
 				for (const [nm, id] of pairs(prev)) cloneMap[nm as string] = id as string;
@@ -280,6 +295,7 @@ export function SaveUI() {
 			anchorPoint={new Vector2(0.5, 0.5)}
 			backgroundTransparency={1}
 		>
+			{/* ScrollingFrame luôn mount sẵn */}
 			<scrollingframe
 				Size={new UDim2(1, 0, 1, 0)}
 				BackgroundColor3={Color3.fromRGB(38, 38, 39)}
@@ -303,79 +319,95 @@ export function SaveUI() {
 					StartCorner={Enum.StartCorner.TopLeft}
 				/>
 
-				{(() => {
-					const children: Record<string, React.Element> = {};
+				{/* ★ Trong lúc loading: KHÔNG render cell & plus (ẩn sạch nội dung) */}
+				{!isInitialLoading &&
+					(() => {
+						const children: Record<string, React.Element> = {};
 
-					for (let i = 0; i < orderedKeys.size(); i++) {
-						const k = orderedKeys[i];
-						const desc = descsByKey.get(k);
-						if (!desc) continue;
+						for (let i = 0; i < orderedKeys.size(); i++) {
+							const k = orderedKeys[i];
+							const desc = descsByKey.get(k);
+							if (!desc) continue;
 
-						const isOpen = openKey === k;
-						const published = isOutfitPublished(k);
-						const pid = getOutfitPublicId(k);
+							const isOpen = openKey === k;
+							const published = isOutfitPublished(k);
+							const pid = getOutfitPublicId(k);
 
-						children[`of-${k}`] = (
-							<Frame
-								layoutOrder={i}
+							children[`of-${k}`] = (
+								<Frame
+									layoutOrder={i}
+									size={UDim2.fromOffset(cellSize, cellSize)}
+									backgroundTransparency={0.75}
+									clipsDescendants
+								>
+									<uicorner CornerRadius={new UDim(0, rem(2))} />
+
+									{/* Avatar preview */}
+									<CharField size={new UDim2(1, 0, 1, 0)} desc={desc} />
+
+									{/* Tap to open options */}
+									<Button
+										size={new UDim2(1, 0, 1, 0)}
+										backgroundTransparency={1}
+										active
+										zIndex={3}
+										onClick={() => setOpenKey(isOpen ? undefined : k)}
+									/>
+
+									{/* Options */}
+									<DisplaySaveOpt
+										open={isOpen}
+										cellW={cellSize}
+										onWear={() => handleWear(k)}
+										onPublish={() => handlePublishToggle(k)}
+										onRemove={() => handleRemove(k)}
+										published={published}
+									/>
+
+									{/* Public ID */}
+									<PublicIdBar id={pid} rem={rem} />
+								</Frame>
+							);
+						}
+
+						// Nút "+" → chỉ hiện khi hết loading
+						children["plus"] = (
+							<Button
+								layoutOrder={9999}
 								size={UDim2.fromOffset(cellSize, cellSize)}
 								backgroundTransparency={0.75}
-								clipsDescendants
+								onClick={() => {
+									store.setMenuPage("saveui");
+									store.setShopOpen(false);
+								}}
 							>
+								<Image
+									image={images.ui.plus_icon}
+									size={new UDim2(0.6, 0, 0.6, 0)}
+									anchorPoint={new Vector2(0.5, 0.5)}
+									position={new UDim2(0.5, 0, 0.5, 0)}
+								/>
 								<uicorner CornerRadius={new UDim(0, rem(2))} />
-
-								{/* Avatar preview */}
-								<CharField size={new UDim2(1, 0, 1, 0)} desc={desc} />
-
-								{/* Tap to open options */}
-								<Button
-									size={new UDim2(1, 0, 1, 0)}
-									backgroundTransparency={1}
-									active
-									zIndex={3}
-									onClick={() => setOpenKey(isOpen ? undefined : k)}
-								/>
-
-								{/* Options */}
-								<DisplaySaveOpt
-									open={isOpen}
-									cellW={cellSize}
-									onWear={() => handleWear(k)}
-									onPublish={() => handlePublishToggle(k)}
-									onRemove={() => handleRemove(k)}
-									published={published}
-								/>
-
-								{/* Public ID */}
-								<PublicIdBar id={pid} rem={rem} />
-							</Frame>
+							</Button>
 						);
-					}
 
-					// Nút "+" để vào trang saveui tạo mới
-					children["plus"] = (
-						<Button
-							layoutOrder={9999}
-							size={UDim2.fromOffset(cellSize, cellSize)}
-							backgroundTransparency={0.75}
-							onClick={() => {
-								store.setMenuPage("saveui");
-								store.setShopOpen(false);
-							}}
-						>
-							<Image
-								image={images.ui.plus_icon}
-								size={new UDim2(0.6, 0, 0.6, 0)}
-								anchorPoint={new Vector2(0.5, 0.5)}
-								position={new UDim2(0.5, 0, 0.5, 0)}
-							/>
-							<uicorner CornerRadius={new UDim(0, rem(2))} />
-						</Button>
-					);
-
-					return children;
-				})()}
+						return children;
+					})()}
 			</scrollingframe>
+
+			{/* Loader overlay giống Displayitem */}
+			{isInitialLoading && (
+				<frame BackgroundTransparency={1} Size={new UDim2(1, 0, 1, 0)}>
+					<frame
+						AnchorPoint={new Vector2(0.5, 0.5)}
+						Position={new UDim2(0.5, 0, 0.5, 0)}
+						Size={new UDim2(0, rem(20), 0, rem(20))}
+						BackgroundTransparency={1}
+					>
+						<SquareLoader />
+					</frame>
+				</frame>
+			)}
 
 			{/* Hard close để không hiện Savebutton khi đóng */}
 			<Closebutsaveui />

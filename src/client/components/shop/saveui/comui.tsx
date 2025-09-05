@@ -1,5 +1,5 @@
 // src/client/components/shop/saveui/comui.tsx
-import React, { useEffect, useMemo, useState } from "@rbxts/react";
+import React, { useEffect, useMemo, useRef, useState } from "@rbxts/react";
 import { Frame } from "client/components/ui/frame";
 import { useRem } from "client/hooks";
 import { remotes, type PublicOutfit, type PublicOutfitsPayload } from "shared/remotes";
@@ -16,6 +16,9 @@ import { DisplayComopt } from "./displaycomopt";
 import { Players } from "@rbxts/services";
 import { buildDescriptionFromOutfit } from "./utils/build-desc-from-assets";
 import { applyDescriptionToAllTargets } from "../shopui/util/camerarotation";
+import { SquareLoader } from "client/components/ui/loading";
+
+const MIN_LOADING = 2;
 
 export function ComUI(): JSX.Element {
 	const rem = useRem();
@@ -27,14 +30,25 @@ export function ComUI(): JSX.Element {
 	const cols = 5;
 	const gridWidth = cols * cellSize + (cols - 1) * gap;
 
-	// state
 	const [outfits, setOutfits] = useState<Record<string, PublicOutfit>>({});
-	const [query, setQuery] = useState(""); // text đang gõ
-	const [filterId, setFilterId] = useState<string | undefined>(undefined); // chỉ apply khi Enter
+	const [query, setQuery] = useState("");
+	const [filterId, setFilterId] = useState<string | undefined>(undefined);
 	const [openKey, setOpenKey] = useState<string | undefined>(undefined);
 
-	// subscribe + GET full when mount
+	const [isInitialLoading, setIsInitialLoading] = useState(false);
+	const loadStartRef = useRef<number>(0);
+	const firstPayloadSeenRef = useRef(false);
+
+	const finishLoadingAfterMinDelay = () => {
+		const elapsed = time() - loadStartRef.current;
+		const remain = math.max(0, MIN_LOADING - elapsed);
+		task.delay(remain, () => setIsInitialLoading(false));
+	};
+
 	useEffect(() => {
+		setIsInitialLoading(true);
+		loadStartRef.current = time();
+
 		const disconnect = remotes.client.publicOutfitsSync.connect((payload: PublicOutfitsPayload) => {
 			const anyPayload = payload as unknown as {
 				full?: true;
@@ -44,31 +58,29 @@ export function ComUI(): JSX.Element {
 			};
 
 			setOutfits((prev) => {
-				if (anyPayload.full && anyPayload.data) return anyPayload.data;
-
+				if (anyPayload.full && anyPayload.data) {
+					firstPayloadSeenRef.current = true;
+					return anyPayload.data;
+				}
 				const updatedMap: Record<string, PublicOutfit> = { ...prev };
-
 				if (anyPayload.patch) {
 					for (const [id, ofit] of pairs(anyPayload.patch)) {
 						updatedMap[id as string] = ofit as PublicOutfit;
 					}
+					firstPayloadSeenRef.current = true;
 				}
 				if (anyPayload.remove) {
-					for (const rid of anyPayload.remove) {
-						delete updatedMap[rid as string];
-					}
+					for (const rid of anyPayload.remove) delete updatedMap[rid as string];
+					firstPayloadSeenRef.current = true;
 				}
 				return updatedMap;
 			});
 		});
 
-		// yêu cầu full list ngay khi mở tab
 		task.defer(() => remotes.server.getPublicOutfits.fire());
-
 		return () => disconnect();
 	}, []);
 
-	// order newest first (Luau comparator returns boolean)
 	const orderedKeys = useMemo(() => {
 		const arr = new Array<string>();
 		for (const [k] of pairs(outfits)) arr.push(k as string);
@@ -80,37 +92,28 @@ export function ComUI(): JSX.Element {
 		return arr;
 	}, [outfits]);
 
-	// Build & own HumanoidDescriptions (tạo một lần per render cycle) — DÙNG MÀU
 	const descMap = useMemo(() => {
 		const m = new Map<string, HumanoidDescription>();
 		for (const id of orderedKeys) {
 			const of = outfits[id];
-			if (of) m.set(id, buildDescriptionFromOutfit(of as unknown as PublicOutfit));
+			if (of) m.set(id, buildDescriptionFromOutfit(of as PublicOutfit));
 		}
 		return m;
 	}, [orderedKeys, outfits]);
 
-	// Cleanup descs khi deps thay đổi / unmount
 	useEffect(() => {
+		if (firstPayloadSeenRef.current) finishLoadingAfterMinDelay();
 		return () => {
 			for (const [, d] of descMap) pcall(() => d.Destroy());
 		};
 	}, [descMap]);
 
-	// Áp filter: nếu filterId có mà không tìm thấy → invalid
 	const { displayKeys, invalid } = useMemo(() => {
-		if (!filterId || filterId === "") {
-			return { displayKeys: orderedKeys, invalid: false };
-		}
-		if (outfits[filterId]) {
-			const one = new Array<string>();
-			one.push(filterId);
-			return { displayKeys: one, invalid: false };
-		}
+		if (!filterId || filterId === "") return { displayKeys: orderedKeys, invalid: false };
+		if (outfits[filterId]) return { displayKeys: [filterId], invalid: false };
 		return { displayKeys: new Array<string>(), invalid: true };
 	}, [filterId, orderedKeys, outfits]);
 
-	// Submit khi FocusLost + Enter
 	function onSubmitFilter(enterPressed: boolean, box: TextBox) {
 		if (!enterPressed) return;
 		const text = box.Text ?? "";
@@ -118,22 +121,15 @@ export function ComUI(): JSX.Element {
 		setFilterId(text !== "" ? text : undefined);
 	}
 
-	/* =======================
-	 * Handlers
-	 * ======================= */
 	function handleWear(id: string) {
 		const of = outfits[id];
 		if (!of) return;
 
-		// Local preview (áp đúng colors nếu có) + đồng bộ viewport
 		const lp = Players.LocalPlayer!;
 		const applyTo = (h: Humanoid) => {
-			const desc = buildDescriptionFromOutfit(of as unknown as PublicOutfit);
-			// 1) Apply cho nhân vật thật
+			const desc = buildDescriptionFromOutfit(of as PublicOutfit);
 			pcall(() => h.ApplyDescription(desc));
-			// 2) Đồng bộ TẤT CẢ viewport humanoids + cập nhật DescCache
 			applyDescriptionToAllTargets(desc, true);
-			// 3) cleanup
 			pcall(() => desc.Destroy());
 		};
 
@@ -147,20 +143,14 @@ export function ComUI(): JSX.Element {
 				conn.Disconnect();
 			});
 		}
-
-		// Replicate toàn server (KÈM COLORS)
 		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors);
-		print(
-			`[ComUI] wear public → id=${id} | name="${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`,
-		);
 	}
 
-	// UI
 	return (
 		<Frame
 			size={new UDim2(0.9, 0, 0.9, 0)}
 			anchorPoint={new Vector2(0.5, 0.5)}
-			position={new UDim2(0.5, 0, 0.5, 0)} // center
+			position={new UDim2(0.5, 0, 0.5, 0)}
 			cornerRadius={new UDim(0, rem(1))}
 			backgroundTransparency={1}
 		>
@@ -177,42 +167,38 @@ export function ComUI(): JSX.Element {
 				<uiflexitem FlexMode={"Fill"} />
 				<uilistlayout SortOrder={"LayoutOrder"} />
 
-				{/* Search bar */}
-				<Frame
-					size={new UDim2(1, 0, 0, rem(6))}
-					backgroundTransparency={1}
-					clipsDescendants={true}
-					layoutOrder={1}
-				>
-					<Image
-						image={images.ui.search_icon}
-						imageColor={Color3.fromRGB(163, 162, 165)}
-						imageTransparency={0.5}
-						size={new UDim2(0, rem(5), 0, rem(5))}
-						position={new UDim2(0, 0, 0, rem(0.5))}
-						layoutOrder={0}
-					/>
-					<uilistlayout FillDirection={"Horizontal"} VerticalAlignment={"Center"} />
-
-					<Frame size={new UDim2(0, rem(50), 1, -rem(1))} backgroundTransparency={0} backgroundColor={Color3.fromRGB(68, 66, 66)}>
-						<uicorner CornerRadius={new UDim(0, 15)} />
-						<TextField
-							text={query}
-							change={{ Text: (rbx) => setQuery((rbx as TextBox).Text) }}
-							event={{ FocusLost: (rbx, enterPressed) => onSubmitFilter(enterPressed, rbx as TextBox) }}
-							clearTextOnFocus={false}
-							placeholderText="Enter ID..."
-							placeholderColor={palette.black.Lerp(palette.white, 0.6)}
-							textColor={palette.white}
-							textSize={rem(3)}
-							font={fonts.JosefinSans.regular}
-							backgroundTransparency={1}
-							size={new UDim2(1, 0, 1, 0)}
-							textXAlignment="Center"
-							layoutOrder={1}
+				{/* Search bar → chỉ render khi hết loading */}
+				{!isInitialLoading && (
+					<Frame size={new UDim2(1, 0, 0, rem(6))} backgroundTransparency={1} clipsDescendants layoutOrder={1}>
+						<Image
+							image={images.ui.search_icon}
+							imageColor={Color3.fromRGB(163, 162, 165)}
+							imageTransparency={0.5}
+							size={new UDim2(0, rem(5), 0, rem(5))}
+							position={new UDim2(0, 0, 0, rem(0.5))}
+							layoutOrder={0}
 						/>
+						<uilistlayout FillDirection={"Horizontal"} VerticalAlignment={"Center"} />
+						<Frame size={new UDim2(0, rem(50), 1, -rem(1))} backgroundColor={Color3.fromRGB(68, 66, 66)}>
+							<uicorner CornerRadius={new UDim(0, 15)} />
+							<TextField
+								text={query}
+								change={{ Text: (rbx) => setQuery((rbx as TextBox).Text) }}
+								event={{ FocusLost: (rbx, enterPressed) => onSubmitFilter(enterPressed, rbx as TextBox) }}
+								clearTextOnFocus={false}
+								placeholderText="Enter ID..."
+								placeholderColor={palette.black.Lerp(palette.white, 0.6)}
+								textColor={palette.white}
+								textSize={rem(3)}
+								font={fonts.JosefinSans.regular}
+								backgroundTransparency={1}
+								size={new UDim2(1, 0, 1, 0)}
+								textXAlignment="Center"
+								layoutOrder={1}
+							/>
+						</Frame>
 					</Frame>
-				</Frame>
+				)}
 
 				<scrollingframe
 					Size={new UDim2(1, 0, 1, 0)}
@@ -239,59 +225,64 @@ export function ComUI(): JSX.Element {
 						StartCorner={Enum.StartCorner.TopLeft}
 					/>
 
-					{(() => {
-						const children: Record<string, React.Element> = {};
-
-						if (displayKeys.size() === 0) {
-							children["_empty"] = (
-								<textlabel
-									Size={UDim2.fromOffset(gridWidth, rem(6))}
-									BackgroundTransparency={1}
-									Text={invalid ? "No outfits found with this ID" : "No public outfits yet"}
-									TextSize={rem(2)}
-									TextColor3={Color3.fromRGB(200, 200, 200)}
-								/>
-							);
-							return children;
-						}
-
-						for (let i = 0; i < displayKeys.size(); i++) {
-							const id = displayKeys[i];
-							const desc = descMap.get(id);
-							if (!desc) continue;
-
-							const isOpen = openKey === id;
-
-							children[`pub_${id}`] = (
-								<Frame
-									layoutOrder={i}
-									size={UDim2.fromOffset(cellSize, cellSize)}
-									backgroundTransparency={0.75}
-									clipsDescendants
-								>
-									<uicorner CornerRadius={new UDim(0, rem(2))} />
-
-									{/* Avatar preview */}
-									<CharField size={new UDim2(1, 0, 1, 0)} desc={desc} />
-
-									{/* Tap to open options */}
-									<Button
-										size={new UDim2(1, 0, 1, 0)}
-										backgroundTransparency={1}
-										active
-										zIndex={3}
-										onClick={() => setOpenKey(isOpen ? undefined : id)}
+					{/* Items + empty state → chỉ render khi hết loading */}
+					{!isInitialLoading &&
+						(() => {
+							const children: Record<string, React.Element> = {};
+							if (displayKeys.size() === 0) {
+								children["_empty"] = (
+									<textlabel
+										Size={UDim2.fromOffset(gridWidth, rem(6))}
+										BackgroundTransparency={1}
+										Text={invalid ? "No outfits found with this ID" : "No public outfits yet"}
+										TextSize={rem(2)}
+										TextColor3={Color3.fromRGB(200, 200, 200)}
 									/>
-
-									{/* Options for community item */}
-									<DisplayComopt open={isOpen} cellW={cellSize} onWear={() => handleWear(id)} />
-								</Frame>
-							);
-						}
-
-						return children;
-					})()}
+								);
+								return children;
+							}
+							for (let i = 0; i < displayKeys.size(); i++) {
+								const id = displayKeys[i];
+								const desc = descMap.get(id);
+								if (!desc) continue;
+								const isOpen = openKey === id;
+								children[`pub_${id}`] = (
+									<Frame
+										layoutOrder={i}
+										size={UDim2.fromOffset(cellSize, cellSize)}
+										backgroundTransparency={0.75}
+										clipsDescendants
+									>
+										<uicorner CornerRadius={new UDim(0, rem(2))} />
+										<CharField size={new UDim2(1, 0, 1, 0)} desc={desc} />
+										<Button
+											size={new UDim2(1, 0, 1, 0)}
+											backgroundTransparency={1}
+											active
+											zIndex={3}
+											onClick={() => setOpenKey(isOpen ? undefined : id)}
+										/>
+										<DisplayComopt open={isOpen} cellW={cellSize} onWear={() => handleWear(id)} />
+									</Frame>
+								);
+							}
+							return children;
+						})()}
 				</scrollingframe>
+
+				{/* Loader overlay */}
+				{isInitialLoading && (
+					<frame BackgroundTransparency={1} Size={new UDim2(1, 0, 1, 0)}>
+						<frame
+							AnchorPoint={new Vector2(0.5, 0.5)}
+							Position={new UDim2(0.5, 0, 0.5, 0)}
+							Size={new UDim2(0, rem(20), 0, rem(20))}
+							BackgroundTransparency={1}
+						>
+							<SquareLoader />
+						</frame>
+					</frame>
+				)}
 			</Frame>
 		</Frame>
 	);

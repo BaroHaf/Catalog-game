@@ -25,9 +25,6 @@ export const PARTS = [
 ];
 
 export const CATEGORIES: Category[] = [
-	{ name: "Inventory" },
-	{ name: "Recent" },
-
 	/* ===== Hair ===== */
 	{
 		name: "Hair",
@@ -66,13 +63,13 @@ export const CATEGORIES: Category[] = [
 		assetType: Enum.AvatarAssetType.BackAccessory,
 		children: [
 			{ name: "All" },
-			{ name: "Hat", filterType: "assetType", filterValue: Enum.AvatarAssetType.Hat },
-			{ name: "Face", filterType: "assetType", filterValue: Enum.AvatarAssetType.FaceAccessory },
-			{ name: "Neck", filterType: "assetType", filterValue: Enum.AvatarAssetType.NeckAccessory },
-			{ name: "Shoulder", filterType: "assetType", filterValue: Enum.AvatarAssetType.ShoulderAccessory },
-			{ name: "Front", filterType: "assetType", filterValue: Enum.AvatarAssetType.FrontAccessory },
-			{ name: "Back", filterType: "assetType", filterValue: Enum.AvatarAssetType.BackAccessory },
-			{ name: "Waist", filterType: "assetType", filterValue: Enum.AvatarAssetType.WaistAccessory },
+			{ name: "Hat", filterType: "assetType", filterValue: "Hat" },
+			{ name: "Face", filterType: "assetType", filterValue: "FaceAccessory" },
+			{ name: "Neck", filterType: "assetType", filterValue: "NeckAccessory" },
+			{ name: "Shoulder", filterType: "assetType", filterValue: "ShoulderAccessory" },
+			{ name: "Front", filterType: "assetType", filterValue: "FrontAccessory" },
+			{ name: "Back", filterType: "assetType", filterValue: "BackAccessory" },
+			{ name: "Waist", filterType: "assetType", filterValue: "WaistAccessory" },
 			{ name: "Handheld", filterType: "keyword", filterValue: "handheld" },
 			{ name: "Effects", filterType: "keyword", filterValue: "effect" },
 		],
@@ -83,14 +80,17 @@ export const CATEGORIES: Category[] = [
 	/* ===== Body ===== */
 	{
 		name: "Body",
-		assetType: Enum.AvatarAssetType.Torso,
+		assetType: Enum.AvatarAssetType.Torso, // mặc định tab
 		children: [
 			{ name: "Colors", filterType: "special", filterValue: "color" },
 			{ name: "Scales", filterType: "special", filterValue: "scale" },
-			{ name: "Head", filterType: "keyword", filterValue: "head" },
-			{ name: "Torso", filterType: "keyword", filterValue: "torso" },
-			{ name: "Arms", filterType: "keyword", filterValue: "arm" },
-			{ name: "Legs", filterType: "keyword", filterValue: "leg" },
+
+			{ name: "Head", filterType: "assetType", filterValue: "DynamicHead" },
+			{ name: "Torso", filterType: "assetType", filterValue: "Torso" },
+			{ name: "Left Arm", filterType: "assetType", filterValue: "LeftArm" },
+			{ name: "Right Arm", filterType: "assetType", filterValue: "RightArm" },
+			{ name: "Left Leg", filterType: "assetType", filterValue: "LeftLeg" },
+			{ name: "Right Leg", filterType: "assetType", filterValue: "RightLeg" },
 		],
 	},
 
@@ -111,5 +111,4 @@ export const CATEGORIES: Category[] = [
 
 	{ name: "Gear", assetType: Enum.AvatarAssetType.Gear },
 	{ name: "Featured", assetType: Enum.AvatarAssetType.ShoulderAccessory },
-	{ name: "Combos" },
 ];
