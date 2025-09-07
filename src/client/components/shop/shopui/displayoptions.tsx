@@ -12,7 +12,9 @@ import { isAssetApplied, takeOffAsset, tryOnAsset } from "./util/camerarotation"
 import { MarketplaceService, Players } from "@rbxts/services";
 import { addToCart, getCartItems, subscribeCart } from "./util/savedata";
 import { tryOnEmote, stopEmote } from "./util/camerarotation";
-
+import { selectPage } from "client/store/shop";
+import { useSelector } from "@rbxts/react-reflex";
+import { remotes } from "shared/remotes";
 const MAX_CART = 20;
 
 interface Props {
@@ -24,7 +26,7 @@ interface Props {
 
 export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 	const rem = useRem();
-
+	const page = useSelector(selectPage);
 	// ===== Responsive tokens theo cellW =====
 	const clamp = (v: number, lo: number, hi: number) => math.clamp(v, lo, hi);
 	const labelSize = math.clamp(math.floor(cellW * 0.085), 5, 12);
@@ -76,11 +78,62 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 	const FADE_IN = { tension: 180, friction: 22, mass: 1 };
 	const FADE_OUT = { tension: 180, friction: 20, mass: 1 };
 
+
+
+	// thay toàn bộ hàm hiện tại của bạn bằng hàm này
 	const promptPurchase = () => {
-		const [ok, err] = pcall(() => {
-			MarketplaceService.PromptPurchase(Players.LocalPlayer!, assetId);
+		// Trang khác Body -> mua asset như cũ
+		if (page !== "Body") {
+			const [ok, err] = pcall(() => {
+				MarketplaceService.PromptPurchase(Players.LocalPlayer!, assetId);
+			});
+			if (!ok) warn("PromptPurchase failed:", err);
+			return;
+		}
+
+		// --- Page Body: convert assetId -> bundleId và mua bundle ---
+		let handled = false; // tránh double-fire
+
+		const disconnect = remotes.client.bundleResolved.connect((aid, bundleId) => {
+			if (aid !== assetId || handled) return;
+			handled = true;
+			disconnect();
+
+			// Không có bundle => bỏ qua (KHÔNG fallback asset, vì bodypart không bán lẻ)
+			if (!bundleId) {
+				warn(`[BUY] Không tìm thấy bundle cho asset ${assetId} (bỏ qua, không mua asset rời).`);
+				return;
+			}
+
+			// (khuyến nghị) kiểm tra trạng thái bán trước khi mở prompt
+			const [infoOk, info] = pcall(
+				() =>
+					MarketplaceService.GetProductInfo(bundleId, Enum.InfoType.Bundle) as
+						| { IsForSale?: boolean; PriceInRobux?: number }
+						| undefined,
+			);
+			if (infoOk && info && info.IsForSale === false) {
+				warn(`[BUY] Bundle ${bundleId} đang offsale → không mở prompt.`);
+				return;
+			}
+
+			const [ok, err] = pcall(() => {
+				MarketplaceService.PromptBundlePurchase(Players.LocalPlayer!, bundleId);
+			});
+			if (!ok) warn("PromptBundlePurchase failed:", err);
 		});
-		if (!ok) warn("PromptPurchase failed:", err);
+
+		// Gửi yêu cầu (chỉ 1 tham số assetId)
+		remotes.server.resolveBundleFromAssetId.fire(assetId);
+
+		// (tuỳ chọn) nếu muốn có timeout thì đừng fallback asset; chỉ huỷ listener:
+		// task.delay(8, () => {
+		// 	if (!handled) {
+		// 		handled = true;
+		// 		disconnect();
+		// 		warn("[BUY] Timeout bundle resolver (không fallback asset trên Body).");
+		// 	}
+		// });
 	};
 
 	useEffect(() => {

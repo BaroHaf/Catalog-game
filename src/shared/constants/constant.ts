@@ -85,7 +85,7 @@ export const CATEGORIES: Category[] = [
 			{ name: "Colors", filterType: "special", filterValue: "color" },
 			{ name: "Scales", filterType: "special", filterValue: "scale" },
 
-			{ name: "Head", filterType: "assetType", filterValue: "Head" },
+			{ name: "Head", filterType: "assetType", filterValue: "DynamicHead" },
 			{ name: "Torso", filterType: "assetType", filterValue: "Torso" },
 			{ name: "Left Arm", filterType: "assetType", filterValue: "LeftArm" },
 			{ name: "Right Arm", filterType: "assetType", filterValue: "RightArm" },
