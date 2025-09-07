@@ -15,16 +15,13 @@ import {
 } from "client/store/shop";
 import { getAssetTypeByPage, filterKeywordItems } from "./utils";
 import { ItemField } from "./item-field";
-import { TextField } from "client/components/ui/text-field";
-import { fonts } from "client/constants/fonts";
-import { palette } from "shared/constants/palette";
 
 const SCROLL_LOAD_FACTOR = 0.8;
 const COLS = 6;
 const IMAGE_RATIO = 1.0;
 const EXTRA_TEXT_RATIO = 0.26;
 const TEXT_PAD_REM_BASE = 6;
-const MIN_LOADING = 1;
+const MIN_LOADING = 2;
 
 interface AssetItem {
 	Id: number;
@@ -94,6 +91,11 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 		searchParams.SortType = Enum.CatalogSortType.Relevance;
 		(searchParams as unknown as { Limit?: number }).Limit = 30;
 
+		if (page === "Body") {
+			searchParams.CategoryFilter = Enum.CatalogCategoryFilter.None;
+			searchParams.IncludeOffSale = true;
+		}
+
 		let assetType: Enum.AvatarAssetType | undefined;
 
 		if (keyword !== "") {
@@ -105,8 +107,7 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 			searchParams.AssetTypes = [assetType];
 			searchParams.SearchKeyword = keyword;
 		} else if (subpage.filterType === "assetType") {
-			const key = subpage.value; // ví dụ "Head"
-			assetType = (Enum.AvatarAssetType as unknown as Record<string, Enum.AvatarAssetType>)[key];
+			assetType = (Enum.AvatarAssetType as unknown as Record<string, Enum.AvatarAssetType>)[subpage.value];
 			if (!assetType) {
 				setIsInitialLoading(false);
 				return;
@@ -115,6 +116,8 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 			searchParams.SearchKeyword = "";
 		} else {
 			assetType = getAssetTypeByPage(page);
+
+			// ví dụ đặc biệt: "bangs"
 			if (subpage.filterType === "keyword" && subpage.value.lower() === "bangs") {
 				assetType = Enum.AvatarAssetType.FaceAccessory;
 			}
@@ -146,6 +149,7 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 
 			const first = catalogPages.GetCurrentPage() as SearchCatalogResult[];
 			let assetItems = convertResults(first, assetType!);
+
 			if (subpage.filterType === "keyword" && subpage.value !== "") {
 				assetItems = filterKeywordItems(assetItems, subpage.value) as AssetItem[];
 			}
@@ -153,8 +157,7 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 			if (!cancelled) {
 				setItems(assetItems);
 				setPages(catalogPages);
-				const sc = scrollRef.current;
-				if (sc) sc.CanvasPosition = new Vector2(0, 0);
+				scrollRef.current && (scrollRef.current.CanvasPosition = new Vector2(0, 0));
 			}
 
 			finish();

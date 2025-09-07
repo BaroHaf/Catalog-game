@@ -85,7 +85,7 @@ export const CATEGORIES: Category[] = [
 			{ name: "Colors", filterType: "special", filterValue: "color" },
 			{ name: "Scales", filterType: "special", filterValue: "scale" },
 
-			{ name: "Head", filterType: "assetType", filterValue: "DynamicHead" },
+			{ name: "Head", filterType: "assetType", filterValue: "Head" },
 			{ name: "Torso", filterType: "assetType", filterValue: "Torso" },
 			{ name: "Left Arm", filterType: "assetType", filterValue: "LeftArm" },
 			{ name: "Right Arm", filterType: "assetType", filterValue: "RightArm" },
@@ -108,7 +108,5 @@ export const CATEGORIES: Category[] = [
 
 	/* ===== Emotes only (giữ lại) ===== */
 	{ name: "Emotes", assetType: Enum.AvatarAssetType.EmoteAnimation },
-
-	{ name: "Gear", assetType: Enum.AvatarAssetType.Gear },
 	{ name: "Featured", assetType: Enum.AvatarAssetType.ShoulderAccessory },
 ];
