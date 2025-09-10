@@ -21,6 +21,7 @@ return {
 			save_icon="rbxassetid://85875483306570",
 			community_icon="rbxassetid://139440841378859",
 			plus_icon="rbxassetid://84777961321160",
+			reset_icon="rbxassetid://130430988000446",
 			alert_dismiss = "rbxassetid://14402269904",
 			backdrop = "rbxassetid://14921324346",
 			blur = "rbxassetid://14120516187",

@@ -19,6 +19,7 @@ export const images: {
 		readonly save_icon:string;
 		readonly community_icon:string;
 		readonly plus_icon:string;
+		readonly reset_icon:string;
 		readonly alert_dismiss: string;
 		readonly backdrop: string;
 		readonly blur: string;

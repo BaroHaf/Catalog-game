@@ -11,6 +11,7 @@ import { useMotion } from "@rbxts/pretty-react-hooks";
 import { isAssetApplied, takeOffAsset, tryOnAsset } from "./util/camerarotation";
 import { MarketplaceService, Players } from "@rbxts/services";
 import { addToCart, getCartItems, subscribeCart } from "./util/savedata";
+import { sendAlert } from "client/alerts";
 import { tryOnEmote, stopEmote } from "./util/camerarotation";
 import { selectPage } from "client/store/shop";
 import { useSelector } from "@rbxts/react-reflex";
