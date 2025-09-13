@@ -215,30 +215,47 @@ type HDKey = keyof HumanoidDescription;
 export function getHDKeyForAssetType(assetType: Enum.AvatarAssetType): HDKey | undefined {
 	switch (assetType) {
 		// clothing classic + face
-		case Enum.AvatarAssetType.Shirt: return "Shirt";
-		case Enum.AvatarAssetType.Pants: return "Pants";
-		case Enum.AvatarAssetType.Face: return "Face";
-		case Enum.AvatarAssetType.TShirt: return "GraphicTShirt";
+		case Enum.AvatarAssetType.Shirt:
+			return "Shirt";
+		case Enum.AvatarAssetType.Pants:
+			return "Pants";
+		case Enum.AvatarAssetType.Face:
+			return "Face";
+		case Enum.AvatarAssetType.TShirt:
+			return "GraphicTShirt";
 
 		// accessories (CSV)
-		case Enum.AvatarAssetType.Hat: return "HatAccessory";
-		case Enum.AvatarAssetType.HairAccessory: return "HairAccessory";
-		case Enum.AvatarAssetType.FaceAccessory: return "FaceAccessory";
-		case Enum.AvatarAssetType.NeckAccessory: return "NeckAccessory";
-		case Enum.AvatarAssetType.ShoulderAccessory: return "ShouldersAccessory";
-		case Enum.AvatarAssetType.FrontAccessory: return "FrontAccessory";
-		case Enum.AvatarAssetType.BackAccessory: return "BackAccessory";
-		case Enum.AvatarAssetType.WaistAccessory: return "WaistAccessory";
+		case Enum.AvatarAssetType.Hat:
+			return "HatAccessory";
+		case Enum.AvatarAssetType.HairAccessory:
+			return "HairAccessory";
+		case Enum.AvatarAssetType.FaceAccessory:
+			return "FaceAccessory";
+		case Enum.AvatarAssetType.NeckAccessory:
+			return "NeckAccessory";
+		case Enum.AvatarAssetType.ShoulderAccessory:
+			return "ShouldersAccessory";
+		case Enum.AvatarAssetType.FrontAccessory:
+			return "FrontAccessory";
+		case Enum.AvatarAssetType.BackAccessory:
+			return "BackAccessory";
+		case Enum.AvatarAssetType.WaistAccessory:
+			return "WaistAccessory";
 
 		// BODY (single number)
 		case Enum.AvatarAssetType.Head:
 		case Enum.AvatarAssetType.DynamicHead:
 			return "Head";
-		case Enum.AvatarAssetType.Torso: return "Torso";
-		case Enum.AvatarAssetType.LeftArm: return "LeftArm";
-		case Enum.AvatarAssetType.RightArm: return "RightArm";
-		case Enum.AvatarAssetType.LeftLeg: return "LeftLeg";
-		case Enum.AvatarAssetType.RightLeg: return "RightLeg";
+		case Enum.AvatarAssetType.Torso:
+			return "Torso";
+		case Enum.AvatarAssetType.LeftArm:
+			return "LeftArm";
+		case Enum.AvatarAssetType.RightArm:
+			return "RightArm";
+		case Enum.AvatarAssetType.LeftLeg:
+			return "LeftLeg";
+		case Enum.AvatarAssetType.RightLeg:
+			return "RightLeg";
 	}
 	return undefined;
 }
@@ -280,7 +297,7 @@ const ACCESSORY_KEYS = [
 ] as const;
 const CLOTH_KEYS = ["Shirt", "Pants", "GraphicTShirt", "Face"] as const;
 // NEW: BODY keys
-const BODY_KEYS = ["Head","Torso","LeftArm","RightArm","LeftLeg","RightLeg"] as const;
+const BODY_KEYS = ["Head", "Torso", "LeftArm", "RightArm", "LeftLeg", "RightLeg"] as const;
 
 /* =========================
    5) UNIFIED DESCRIPTION CACHE
@@ -309,47 +326,74 @@ const SCALE_RAW_KEYS = [
 type ScaleRawKey = (typeof SCALE_RAW_KEYS)[number];
 
 // Snapshot: clothes(numbers), accessories(csv), body(numbers), colors(Color3), scales(numbers)
-type DescSnapshot =
-	Partial<Record<(typeof CLOTH_KEYS)[number], number>> &
+// Snapshot: clothes(numbers), accessories(csv), body(numbers), colors(Color3), scales(numbers), layered(list)
+type DescSnapshot = Partial<Record<(typeof CLOTH_KEYS)[number], number>> &
 	Partial<Record<(typeof ACCESSORY_KEYS)[number], string>> &
 	Partial<Record<(typeof BODY_KEYS)[number], number>> &
 	Partial<Record<ColorKey, Color3>> &
-	Partial<Record<ScaleRawKey, number>>;
+	Partial<Record<ScaleRawKey, number>> & {
+		// ✅ LAYERED: lưu cả danh sách layered (LayeredAccessoryInfo)
+		// Đúng: lưu về AccessoryInfo[] cho an toàn
+		LayeredAccessories?: AccessoryInfo[];
+	};
 
 let DescCache: DescSnapshot | undefined;
 
 function snapshotFromDesc(d: HumanoidDescription): DescSnapshot {
 	const snap: DescSnapshot = {};
-	// clothes
+
+	// clothes (single-number)
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
 		const k = CLOTH_KEYS[i] as string;
 		const v = (d as unknown as Record<string, number>)[k];
 		if (typeOf(v) === "number") (snap as unknown as Record<string, number>)[k] = v;
 	}
+
 	// accessories csv
 	for (let i = 0; i < ACCESSORY_KEYS.size(); i++) {
 		const k = ACCESSORY_KEYS[i] as string;
 		const v = (d as unknown as Record<string, string>)[k];
 		if (typeOf(v) === "string") (snap as unknown as Record<string, string>)[k] = v;
 	}
-	// body numbers
+
+	// body (single-number)
 	for (let i = 0; i < BODY_KEYS.size(); i++) {
 		const k = BODY_KEYS[i] as string;
 		const v = (d as unknown as Record<string, number>)[k];
 		if (typeOf(v) === "number") (snap as unknown as Record<string, number>)[k] = v;
 	}
+
 	// colors
 	for (let i = 0; i < COLOR_KEYS.size(); i++) {
 		const ck = COLOR_KEYS[i] as string;
 		const v = (d as unknown as Record<string, Color3>)[ck];
 		if (typeOf(v) === "Color3") (snap as unknown as Record<string, Color3>)[ck] = v;
 	}
+
 	// scales
 	for (let i = 0; i < SCALE_RAW_KEYS.size(); i++) {
 		const sk = SCALE_RAW_KEYS[i] as string;
 		const v = (d as unknown as Record<string, number>)[sk];
 		if (typeOf(v) === "number") (snap as unknown as Record<string, number>)[sk] = v;
 	}
+
+	// LAYERED: lưu các món IsLayered
+	do {
+		const [ok, accs] = pcall(() => d.GetAccessories(true));
+		if (!ok || !accs) {
+			snap.LayeredAccessories = [];
+			break;
+		}
+		const layeredOnly = accs.filter((it) => {
+			const a = it as unknown as { IsLayered?: boolean };
+			return a.IsLayered === true;
+		}) as AccessoryInfo[];
+		snap.LayeredAccessories = layeredOnly;
+	} while (false);
+
+	// (tuỳ chọn) debug
+	// print(`[SNAP][MAKE] layered=${snap.LayeredAccessories?.size() ?? 0}`);
+
 	return snap;
 }
 
@@ -393,9 +437,7 @@ function dedupeAgainstBodyAndClothes(d: HumanoidDescription) {
 function safeApplyHumanoid(h: Humanoid, desc: HumanoidDescription, hard: boolean) {
 	// thử lần 1
 	{
-		const [ok, err] = hard
-			? pcall(() => h.ApplyDescriptionReset(desc))
-			: pcall(() => h.ApplyDescription(desc));
+		const [ok, err] = hard ? pcall(() => h.ApplyDescriptionReset(desc)) : pcall(() => h.ApplyDescription(desc));
 		if (ok) return true;
 
 		const msg = tostring(err);
@@ -408,9 +450,7 @@ function safeApplyHumanoid(h: Humanoid, desc: HumanoidDescription, hard: boolean
 		}
 	}
 	// thử lần 2 sau khi dedupe
-	const [ok2, err2] = hard
-		? pcall(() => h.ApplyDescriptionReset(desc))
-		: pcall(() => h.ApplyDescription(desc));
+	const [ok2, err2] = hard ? pcall(() => h.ApplyDescriptionReset(desc)) : pcall(() => h.ApplyDescription(desc));
 	if (!ok2) {
 		warn("[avatar] apply failed after dedupe:", err2);
 		return false;
@@ -431,11 +471,15 @@ function applyClothesBodyAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescri
 		const k = BODY_KEYS[i] as string;
 		(d as unknown as Record<string, unknown>)[k] = (srcDesc as unknown as Record<string, unknown>)[k];
 	}
-	// accessories
+	// accessories CSV
 	for (let i = 0; i < ACCESSORY_KEYS.size(); i++) {
 		const k = ACCESSORY_KEYS[i] as string;
 		(d as unknown as Record<string, unknown>)[k] = (srcDesc as unknown as Record<string, unknown>)[k];
 	}
+
+	// ✅ NEW: COPY LAYERED ACCESSORIES (rất quan trọng)
+	const layered = srcDesc.GetAccessories(true);
+	d.SetAccessories(layered, true);
 
 	dedupeAgainstBodyAndClothes(d);
 	safeApplyHumanoid(toHum, d, hard);
@@ -484,6 +528,14 @@ function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot, hard = false) 
 		const sk = SCALE_RAW_KEYS[i] as string;
 		const v = (snap as unknown as Record<string, unknown>)[sk];
 		if (typeOf(v) === "number") (d as unknown as Record<string, number>)[sk] = v as number;
+	}
+	// RESTORE LAYERED: set lại giống 1 "field"
+	if (snap.LayeredAccessories !== undefined) {
+		const onlyLayered = (snap.LayeredAccessories ?? []).filter((it) => {
+			const a = it as unknown as { IsLayered?: boolean };
+			return a.IsLayered === true;
+		}) as AccessoryInfo[];
+		d.SetAccessories(onlyLayered, false); // giữ nguyên rigid
 	}
 
 	dedupeAgainstBodyAndClothes(d);
@@ -1060,12 +1112,7 @@ export function applyDescriptionToAllTargets(desc: HumanoidDescription, hard = f
 }
 
 /** Từ 2 slider (hue 0..1, value 0..1) sinh Color3 rồi áp vào phần body chọn. */
-export function applyBodyColorFromSliders(
-	huePct: number,
-	valPct: number,
-	region?: BodyRegion,
-	snapToBrick = false,
-) {
+export function applyBodyColorFromSliders(huePct: number, valPct: number, region?: BodyRegion, snapToBrick = false) {
 	return applyBodyColor(colorFromSliders(huePct, valPct), region, snapToBrick);
 }
 
@@ -1171,7 +1218,9 @@ export function getCurrentHumanoidAssets(): SimpleAssetInfo[] {
 	const base = getPrimaryHumanoid();
 	if (!base) return [];
 
-	const ids = DescCache ? collectAssetIdsFromSnapshot(DescCache) : collectAssetIdsFromDesc(base.GetAppliedDescription());
+	const ids = DescCache
+		? collectAssetIdsFromSnapshot(DescCache)
+		: collectAssetIdsFromDesc(base.GetAppliedDescription());
 	const result = new Array<SimpleAssetInfo>();
 	for (let i = 0; i < ids.size(); i++) {
 		const id = ids[i];

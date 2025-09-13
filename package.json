@@ -16,7 +16,6 @@
 	},
 	"devDependencies": {
 		"@rbxts/compiler-types": "^3.0.0-types.0",
-		"@rbxts/types": "^1.0.852",
 		"@typescript-eslint/eslint-plugin": "^8.32.1",
 		"@typescript-eslint/parser": "^8.32.1",
 		"cross-env": "^7.0.3",
@@ -46,6 +45,7 @@
 		"@rbxts/set-timeout": "^1.1.2",
 		"@rbxts/t": "^3.2.1",
 		"@rbxts/testez": "0.4.2-ts.0",
+		"@rbxts/types": "^1.0.881",
 		"@rbxts/validate-tree": "^2.0.2"
 	}
 }

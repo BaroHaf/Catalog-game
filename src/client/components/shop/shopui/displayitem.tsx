@@ -21,7 +21,7 @@ const COLS = 6;
 const IMAGE_RATIO = 1.0;
 const EXTRA_TEXT_RATIO = 0.26;
 const TEXT_PAD_REM_BASE = 6;
-const MIN_LOADING = 2;
+const MIN_LOADING = 1;
 
 interface AssetItem {
 	Id: number;

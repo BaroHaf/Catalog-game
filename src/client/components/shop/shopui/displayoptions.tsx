@@ -1,3 +1,5 @@
+// src/client/components/shop/shopui/displayoptions.tsx
+
 import React, { useEffect, useState } from "@rbxts/react";
 import { Frame } from "client/components/ui/frame";
 import { Button } from "client/components/ui/button";
@@ -11,11 +13,18 @@ import { useMotion } from "@rbxts/pretty-react-hooks";
 import { isAssetApplied, takeOffAsset, tryOnAsset } from "./util/camerarotation";
 import { MarketplaceService, Players } from "@rbxts/services";
 import { addToCart, getCartItems, subscribeCart } from "./util/savedata";
-import { sendAlert } from "client/alerts";
 import { tryOnEmote, stopEmote } from "./util/camerarotation";
 import { selectPage } from "client/store/shop";
 import { useSelector } from "@rbxts/react-reflex";
 import { remotes } from "shared/remotes";
+import {
+	isLayeredAvatarAssetType,
+	isLayeredApplied,
+	tryOnLayered,
+	takeOffLayered,
+	debugDumpLayered,
+} from "./util/layered";
+
 const MAX_CART = 20;
 
 interface Props {
@@ -28,6 +37,7 @@ interface Props {
 export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 	const rem = useRem();
 	const page = useSelector(selectPage);
+
 	// ===== Responsive tokens theo cellW =====
 	const clamp = (v: number, lo: number, hi: number) => math.clamp(v, lo, hi);
 	const labelSize = math.clamp(math.floor(cellW * 0.085), 5, 12);
@@ -41,19 +51,27 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 	const [y, yMotion] = useMotion(1);
 	const [a, aMotion] = useMotion(1);
 
-	// trạng thái đã mặc chưa
+	// trạng thái đã mang chưa
 	const [equipped, setEquipped] = useState(false);
 
-	// trạng thái giỏ để disable/hiển thị
+	// giỏ hàng
 	const [cartCount, setCartCount] = useState(0);
 	const [inCart, setInCart] = useState(false);
 
-	// đồng bộ viewport humanoid
+	// --- đồng bộ trạng thái equipped từ viewport humanoid ---
 	useEffect(() => {
-		setEquipped(isAssetApplied(assetType, assetId));
+		const eq = isLayeredAvatarAssetType(assetType)
+			? isLayeredApplied(assetType, assetId)
+			: isAssetApplied(assetType, assetId);
+		setEquipped(eq);
+		print(
+			`[UI][DisplayOptions] sync equipped assetId=${assetId} type=${assetType.Name} layered=${
+				isLayeredAvatarAssetType(assetType)
+			}`,
+		);
 	}, [assetType, assetId, open]);
 
-	// đồng bộ giỏ (realtime)
+	// --- đồng bộ giỏ (realtime) ---
 	useEffect(() => {
 		const refresh = () => {
 			const list = getCartItems();
@@ -69,9 +87,7 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 		};
 		refresh();
 		const unsub = subscribeCart(refresh);
-		return () => {
-			unsub();
-		};
+		return () => unsub();
 	}, [assetId]);
 
 	const SPRING_IN = { tension: 220, friction: 20, mass: 1 };
@@ -79,34 +95,25 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 	const FADE_IN = { tension: 180, friction: 22, mass: 1 };
 	const FADE_OUT = { tension: 180, friction: 20, mass: 1 };
 
-
-
-	// thay toàn bộ hàm hiện tại của bạn bằng hàm này
+	// --- MUA (Bundle cho Body) ---
 	const promptPurchase = () => {
-		// Trang khác Body -> mua asset như cũ
 		if (page !== "Body") {
-			const [ok, err] = pcall(() => {
-				MarketplaceService.PromptPurchase(Players.LocalPlayer!, assetId);
-			});
+			const [ok, err] = pcall(() => MarketplaceService.PromptPurchase(Players.LocalPlayer!, assetId));
 			if (!ok) warn("PromptPurchase failed:", err);
 			return;
 		}
 
-		// --- Page Body: convert assetId -> bundleId và mua bundle ---
-		let handled = false; // tránh double-fire
-
+		let handled = false;
 		const disconnect = remotes.client.bundleResolved.connect((aid, bundleId) => {
 			if (aid !== assetId || handled) return;
 			handled = true;
 			disconnect();
 
-			// Không có bundle => bỏ qua (KHÔNG fallback asset, vì bodypart không bán lẻ)
 			if (!bundleId) {
-				warn(`[BUY] Không tìm thấy bundle cho asset ${assetId} (bỏ qua, không mua asset rời).`);
+				warn(`[BUY] Không tìm thấy bundle cho asset ${assetId} (bỏ qua).`);
 				return;
 			}
 
-			// (khuyến nghị) kiểm tra trạng thái bán trước khi mở prompt
 			const [infoOk, info] = pcall(
 				() =>
 					MarketplaceService.GetProductInfo(bundleId, Enum.InfoType.Bundle) as
@@ -114,29 +121,18 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 						| undefined,
 			);
 			if (infoOk && info && info.IsForSale === false) {
-				warn(`[BUY] Bundle ${bundleId} đang offsale → không mở prompt.`);
+				warn(`[BUY] Bundle ${bundleId} offsale → không mở prompt.`);
 				return;
 			}
 
-			const [ok, err] = pcall(() => {
-				MarketplaceService.PromptBundlePurchase(Players.LocalPlayer!, bundleId);
-			});
+			const [ok, err] = pcall(() => MarketplaceService.PromptBundlePurchase(Players.LocalPlayer!, bundleId));
 			if (!ok) warn("PromptBundlePurchase failed:", err);
 		});
 
-		// Gửi yêu cầu (chỉ 1 tham số assetId)
 		remotes.server.resolveBundleFromAssetId.fire(assetId);
-
-		// (tuỳ chọn) nếu muốn có timeout thì đừng fallback asset; chỉ huỷ listener:
-		// task.delay(8, () => {
-		// 	if (!handled) {
-		// 		handled = true;
-		// 		disconnect();
-		// 		warn("[BUY] Timeout bundle resolver (không fallback asset trên Body).");
-		// 	}
-		// });
 	};
 
+	// --- Mount/Unmount transition ---
 	useEffect(() => {
 		if (open) {
 			if (!shouldRender) setShouldRender(true);
@@ -156,28 +152,52 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 	const pos = y.map((v: number) => new UDim2(0, 0, v, 0));
 	const fade = a.map((x: number) => math.clamp(x, 0, 1));
 
+	// --- TRY ON / TAKE OFF ---
 	const onTryOn = () => {
+		// Emote
 		if (assetType === Enum.AvatarAssetType.EmoteAnimation) {
 			if (equipped) {
+				print(`[UI][TRY] Stop emote id=${assetId}`);
 				stopEmote(0.12);
 				setEquipped(false);
 			} else {
+				print(`[UI][TRY] Play emote id=${assetId}`);
 				tryOnEmote(assetId, { looped: true, stopOthers: true });
 				setEquipped(true);
 			}
 			return;
 		}
-		// còn lại: quần áo/phụ kiện
+
+		// Layered clothing
+		if (isLayeredAvatarAssetType(assetType)) {
+			if (equipped) {
+				print(`[UI][TRY] TakeOff layered id=${assetId} type=${assetType.Name}`);
+				takeOffLayered(assetType, assetId);
+				debugDumpLayered();
+				setEquipped(false);
+			} else {
+				print(`[UI][TRY] TryOn layered id=${assetId} type=${assetType.Name}`);
+				// replaceSameType=false để cho phép stack nhiều layer cùng loại (nếu bạn muốn thay thế thì đặt true)
+				tryOnLayered(assetType, assetId, { replaceSameType: false });
+				debugDumpLayered();
+				setEquipped(true);
+			}
+			return;
+		}
+
+		// Classic + Accessories CSV cũ
 		if (equipped) {
+			print(`[UI][TRY] TakeOff classic id=${assetId} type=${assetType.Name}`);
 			takeOffAsset(assetType, assetId);
 			setEquipped(false);
 		} else {
+			print(`[UI][TRY] TryOn classic id=${assetId} type=${assetType.Name}`);
 			tryOnAsset(assetType, assetId, { replaceList: false });
 			setEquipped(true);
 		}
 	};
 
-	// ===== Add to cart (chuyên nghiệp): chặn dư 20 / chặn trùng
+	// --- Add to cart ---
 	const canAdd = cartCount < MAX_CART && !inCart;
 	const onAddToCart = () => {
 		if (!canAdd) {
@@ -200,11 +220,10 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 				<uilistlayout Padding={new UDim(0, gapPx)} />
 
 				{/* TRY ON */}
-				<Frame size={new UDim2(1, 0, 0.5, 0)} backgroundTransparency={1} zIndex={4}>
+				<Frame size={new UDim2(1, 0, 0.5, 0)} backgroundTransparency={1}>
 					<Button
 						size={new UDim2(mainBtnWidthScale, 0, 1, 0)}
 						backgroundColor={equipped ? Color3.fromRGB(255, 78, 78) : Color3.fromRGB(14, 250, 10)}
-						zIndex={5}
 						onClick={onTryOn}
 					>
 						<uicorner CornerRadius={new UDim(0, cornerPx)} />
@@ -212,11 +231,9 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 							text={equipped ? "TAKE OFF" : "TRY ON"}
 							font={fonts.JosefinSans.bold}
 							size={new UDim2(1, 0, 1, 0)}
-							zIndex={6}
 							textColor={palette.black}
 							textSize={labelSize}
 							textTransparency={fade}
-							textScaled={false}
 						/>
 					</Button>
 
@@ -225,15 +242,9 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 						anchorPoint={new Vector2(1, 0.5)}
 						position={new UDim2(1, 0, 0.5, 0)}
 						size={new UDim2(0, iconPx, 0, iconPx)}
-						zIndex={6}
 						onClick={onTryOn}
 					>
-						<Image
-							image={images.ui.rectangle_rounded}
-							backgroundTransparency={1}
-							size={new UDim2(1, 0, 1, 0)}
-							imageTransparency={fade}
-						/>
+						<Image image={images.ui.rectangle_rounded} backgroundTransparency={1} size={new UDim2(1, 0, 1, 0)} imageTransparency={fade} />
 						<Image
 							image={images.ui.view_eye}
 							backgroundTransparency={1}
@@ -246,11 +257,10 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 				</Frame>
 
 				{/* BUY / ADD TO CART */}
-				<Frame size={new UDim2(1, 0, 0.5, 0)} backgroundTransparency={1} zIndex={4}>
+				<Frame size={new UDim2(1, 0, 0.5, 0)} backgroundTransparency={1}>
 					<Button
 						size={new UDim2(mainBtnWidthScale, 0, 1, 0)}
 						backgroundColor={Color3.fromRGB(14, 250, 10)}
-						zIndex={5}
 						onClick={promptPurchase}
 					>
 						<uicorner CornerRadius={new UDim(0, cornerPx)} />
@@ -258,8 +268,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 							text={"BUY"}
 							font={fonts.JosefinSans.bold}
 							size={new UDim2(1, 0, 1, 0)}
-							zIndex={6}
-							textScaled={false}
 							textColor={palette.black}
 							textSize={labelSize}
 							textTransparency={fade}
@@ -271,7 +279,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 						anchorPoint={new Vector2(1, 0.5)}
 						position={new UDim2(1, 0, 0.5, 0)}
 						size={new UDim2(0, iconPx, 0, iconPx)}
-						zIndex={6}
 						onClick={onAddToCart}
 					>
 						<Image
@@ -286,7 +293,7 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 							size={new UDim2(0.6, 0, 0.6, 0)}
 							anchorPoint={new Vector2(0.5, 0.5)}
 							position={new UDim2(0.5, 0, 0.5, 0)}
-							imageTransparency={inCart || cartCount >= MAX_CART ? 0.6 : fade} // mờ khi không thể thêm
+							imageTransparency={inCart || cartCount >= MAX_CART ? 0.6 : fade}
 						/>
 					</Button>
 				</Frame>
