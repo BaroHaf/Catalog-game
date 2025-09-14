@@ -64,11 +64,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW }: Props) {
 			? isLayeredApplied(assetType, assetId)
 			: isAssetApplied(assetType, assetId);
 		setEquipped(eq);
-		print(
-			`[UI][DisplayOptions] sync equipped assetId=${assetId} type=${assetType.Name} layered=${
-				isLayeredAvatarAssetType(assetType)
-			}`,
-		);
 	}, [assetType, assetId, open]);
 
 	// --- đồng bộ giỏ (realtime) ---

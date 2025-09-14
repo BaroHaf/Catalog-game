@@ -1,4 +1,3 @@
-// src/client/components/shop/saveui/comui.tsx
 import React, { useEffect, useMemo, useRef, useState } from "@rbxts/react";
 import { Frame } from "client/components/ui/frame";
 import { useRem } from "client/hooks";
@@ -143,7 +142,9 @@ export function ComUI(): JSX.Element {
 				conn.Disconnect();
 			});
 		}
-		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors);
+
+		// NEW: gửi scales (nếu có) cùng colors lên server (để log/persist theo nhu cầu)
+		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors, of.scales);
 	}
 
 	return (
@@ -276,7 +277,7 @@ export function ComUI(): JSX.Element {
 						<frame
 							AnchorPoint={new Vector2(0.5, 0.5)}
 							Position={new UDim2(0.5, 0, 0.5, 0)}
-							Size={new UDim2(0, rem(20), 0, rem(20))}
+							Size={new UDim2(0, rem(20),0, rem(20))}
 							BackgroundTransparency={1}
 						>
 							<SquareLoader />

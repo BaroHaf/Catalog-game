@@ -1,10 +1,9 @@
-// src/server/services/outfits.services.ts
 import { createCollection } from "@rbxts/lapis";
 import { Players } from "@rbxts/services";
-import { remotes, Outfit, OutfitSave, BodyColorsData } from "shared/remotes";
+import { remotes, Outfit, OutfitSave, BodyColorsData, ScalesData } from "shared/remotes";
 
 /* ===== Defaults ===== */
-// Lưu nội bộ có id, vẫn tương thích khi gửi payload V1 (cast khi fire remote)
+// Lưu nội bộ có id, tương thích khi gửi payload V1 (cast khi fire remote)
 type OutfitWithId = Outfit & { id: string };
 type OutfitSaveWithId = { outfits: Record<string, OutfitWithId>; current?: string };
 
@@ -19,11 +18,10 @@ const saves = new Map<number, OutfitSaveWithId>();
 const loading = new Set<number>();
 
 /* ===== Config test clear ===== */
-const FORCE_CLEAR_ON_LOAD = false; // <-- Đổi về false sau khi test xong
+const FORCE_CLEAR_ON_LOAD = false;
 
 /* ===================== Helpers ===================== */
 
-// Base62: a-zA-Z0-9
 const BASE62 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 function randomId(len = 8): string {
 	const arr = new Array<string>();
@@ -33,7 +31,6 @@ function randomId(len = 8): string {
 	}
 	return arr.join("");
 }
-
 function createUniqueId(existing: Record<string, unknown>, preferLen = 8): string {
 	let id = randomId(preferLen);
 	let guard = 0;
@@ -43,27 +40,23 @@ function createUniqueId(existing: Record<string, unknown>, preferLen = 8): strin
 	}
 	return id;
 }
-
 function normalizeName(s: string) {
 	const lower = s.lower();
 	const single = lower.gsub("%s+", " ")[0];
 	return single.gsub("^%s*(.-)%s*$", "%1")[0];
 }
-
 function compactOutfits(src: Record<string, OutfitWithId | undefined>): Record<string, OutfitWithId> {
 	const out: Record<string, OutfitWithId> = {};
 	for (const [k, v] of pairs(src)) if (v !== undefined) out[k] = v as OutfitWithId;
 	return out;
 }
-
-/** Ghi với backoff để tránh lock contention */
 function writeWithRetry(doc: Doc, data: OutfitSaveWithId, attempts = 6, baseWait = 0.25) {
 	let i = 0;
 	while (i < attempts) {
 		const [ok, err] = pcall(() => doc.write(data));
 		if (ok) return true;
 		warn(`[Outfits] write retry ${i + 1}/${attempts} -> ${err}`);
-		task.wait(baseWait * (1 + i * 0.5)); // tăng dần
+		task.wait(baseWait * (1 + i * 0.5));
 		i++;
 	}
 	warn("[Outfits] write failed after retries");
@@ -83,9 +76,9 @@ export function initOutfitsService() {
 	});
 
 	/* ---------- POST ---------- */
-	// NHẬN THÊM colors? (tuỳ chọn) để lưu kèm màu body
-	remotes.server.postOutfit.connect((player, name, assets, snapshotThumb?, colors?) => {
-		void upsertOutfit(player, name, assets, snapshotThumb, colors);
+	// nhận thêm colors?, scales?, accessoryBlob?
+	remotes.server.postOutfit.connect((player, name, assets, snapshotThumb?, colors?, scales?, accessoryBlob?) => {
+		void upsertOutfit(player, name, assets, snapshotThumb, colors, scales, accessoryBlob);
 	});
 
 	/* ---------- DELETE ---------- */
@@ -97,7 +90,6 @@ export function initOutfitsService() {
 	remotes.server.patchOutfitName.connect((player, oldName, newName) => {
 		renameOutfitByName(player, oldName, newName);
 	});
-
 	remotes.server.patchOutfitCurrent.connect((player, name) => {
 		setCurrentOutfitByName(player, name);
 	});
@@ -110,12 +102,21 @@ export async function upsertOutfit(
 	assets: number[],
 	snapshotThumb?: string,
 	colors?: BodyColorsData,
+	scales?: ScalesData,
+	accessoryBlob?: string,
 ) {
 	const uid = player.UserId;
 	const doc = docs.get(uid);
 	const cur = saves.get(uid);
 
-	print("[Outfits] upsert request", player.Name, name, "assets:", assets.size(), "colors:", colors !== undefined);
+	print(
+		"[Outfits] upsert request",
+		player.Name, name,
+		"assets:", assets.size(),
+		"colors:", colors !== undefined,
+		"scales:", scales !== undefined,
+		"blob:", accessoryBlob !== undefined
+	);
 
 	if (!doc || !cur) {
 		warn("[Outfits] skip upsert: doc/cur missing for", player.Name);
@@ -130,7 +131,8 @@ export async function upsertOutfit(
 		assets: (assets ?? []).filter((n) => typeIs(n, "number")),
 		snapshotThumb,
 		updatedAt: now,
-		colors, // LƯU MÀU
+		colors,
+		scales,
 	};
 
 	const nextOutfits = { ...cur.outfits, [id]: outfit };
@@ -155,8 +157,7 @@ function removeOutfitByName(player: Player, name: string) {
 	let foundId: string | undefined = undefined;
 	for (const [id, of] of pairs(cur.outfits)) {
 		if (normalizeName(of.name) === key) {
-			foundId = id;
-			break;
+			foundId = id; break;
 		}
 	}
 	if (!foundId) return;
@@ -189,10 +190,7 @@ function renameOutfitByName(player: Player, oldName: string, newName: string) {
 	const oldKey = normalizeName(oldName);
 	let foundId: string | undefined = undefined;
 	for (const [id, of] of pairs(cur.outfits)) {
-		if (normalizeName(of.name) === oldKey) {
-			foundId = id;
-			break;
-		}
+		if (normalizeName(of.name) === oldKey) { foundId = id; break; }
 	}
 	if (!foundId) return;
 
@@ -223,10 +221,7 @@ function setCurrentOutfitByName(player: Player, name?: string) {
 	if (name) {
 		const key = normalizeName(name);
 		for (const [oid, of] of pairs(cur.outfits)) {
-			if (normalizeName(of.name) === key) {
-				id = oid;
-				break;
-			}
+			if (normalizeName(of.name) === key) { id = oid; break; }
 		}
 		if (id && !cur.outfits[id]) return;
 	}
@@ -238,49 +233,30 @@ function setCurrentOutfitByName(player: Player, name?: string) {
 	remotes.client.outfitsSync.fire(player, { patch: { current: id } } as unknown as { patch: OutfitSave });
 }
 
-function clearAllOutfits(player: Player) {
-	const uid = player.UserId;
-	const doc = docs.get(uid);
-	if (!doc) return;
-
-	const empty: OutfitSaveWithId = { outfits: {}, current: undefined };
-	saves.set(uid, empty);
-	writeWithRetry(doc, empty);
-
-	remotes.client.outfitsSync.fire(player, { full: true, data: empty } as unknown as { full: true; data: OutfitSave });
-	print(`[Outfits] Cleared all outfits for ${player.Name}`);
-}
-
 /* ===================== Lifecycle ===================== */
 async function loadPlayer(p: Player) {
 	if (docs.has(p.UserId) || loading.has(p.UserId)) return;
 	loading.add(p.UserId);
 	try {
 		const doc = await collection.load(`${p.UserId}`);
-		if (!p.Parent) {
-			doc.close();
-			return;
-		}
+		if (!p.Parent) { doc.close(); return; }
 		docs.set(p.UserId, doc);
 
 		if (FORCE_CLEAR_ON_LOAD) {
-			// —— Test mode: clear sạch, chỉ 1 lần ghi + backoff
 			const empty: OutfitSaveWithId = { outfits: {}, current: undefined };
 			saves.set(p.UserId, empty);
 			writeWithRetry(doc, empty);
 			remotes.client.outfitsSync.fire(p, { full: true, data: empty } as unknown as { full: true; data: OutfitSave });
 			print(`[Outfits] (TEST) Cleared on load for ${p.Name}`);
 		} else {
-			// —— Normal mode: đọc + migrate nếu cần (không clear)
 			let data = (doc.read() as OutfitSaveWithId) ?? DEFAULT_OUTFITS;
-
-			// migrate nhẹ nếu lỡ lưu kiểu cũ (không có id)
+			// migrate nhẹ từ dữ liệu cũ chưa có id/scales/accessoryBlob
 			if (data && data.outfits) {
 				let touched = false;
 				const outfitsObj = (data.outfits as unknown) as Record<string, OutfitWithId | Outfit>;
 				const migrated: Record<string, OutfitWithId> = {};
 
-				for (const [k, v] of pairs(outfitsObj)) {
+				for (const [, v] of pairs(outfitsObj)) {
 					if (!v) continue;
 					const anyv = v as Partial<OutfitWithId> & Outfit;
 					if (!anyv.id || typeOf(anyv.id) !== "string" || anyv.id.size() < 1 || anyv.id.size() > 10) {
@@ -291,7 +267,8 @@ async function loadPlayer(p: Player) {
 							assets: anyv.assets,
 							snapshotThumb: anyv.snapshotThumb,
 							updatedAt: anyv.updatedAt ?? os.time(),
-							colors: (anyv as OutfitWithId).colors, // giữ nếu có
+							colors: (anyv as OutfitWithId).colors,
+							scales: (anyv as OutfitWithId).scales,               // giữ nếu có
 						};
 						touched = true;
 					} else {
@@ -321,10 +298,9 @@ async function loadPlayer(p: Player) {
 		loading.delete(p.UserId);
 	}
 }
-
 function unloadPlayer(p: Player) {
 	const doc = docs.get(p.UserId);
-	if (doc) pcall(() => doc.close()); // close sẽ flush nếu còn pending
+	if (doc) pcall(() => doc.close());
 	docs.delete(p.UserId);
 	saves.delete(p.UserId);
 }

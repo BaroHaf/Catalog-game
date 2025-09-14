@@ -1,4 +1,3 @@
-// shared/remotes.ts
 import { createRemotes, namespace, remote, Client, Server } from "@rbxts/remo";
 
 /* ========= CART ========= */
@@ -29,13 +28,25 @@ export type BodyColorsData = {
 	rightLeg: RGB;
 };
 
+/* ========= SCALES ========= */
+export type ScalesData = {
+	HeightScale?: number;
+	WidthScale?: number;
+	DepthScale?: number;
+	HeadScale?: number;
+	BodyTypeScale?: number;
+	ProportionScale?: number;
+};
+
 /* ========= OUTFITS (Preset lưu) - V1 (GIỮ NGUYÊN API, MỞ RỘNG TYPE) ========= */
 export type Outfit = {
-	name: string;            // tên hiển thị
-	assets: number[];        // danh sách AvatarAssetId
+	name: string;
+	assets: number[];
 	snapshotThumb?: string;
-	updatedAt: number;       // os.time()
-	colors?: BodyColorsData; // NEW: màu body (RGB) – optional để tương thích dữ liệu cũ
+	updatedAt: number;
+	colors?: BodyColorsData;
+	// NEW
+	scales?: ScalesData;
 };
 
 export type OutfitSave = {
@@ -55,9 +66,6 @@ export type OutfitsSyncPayload =
 export type GlobalOutfitsFull = Record<number, OutfitSave>; // ownerId -> OutfitSave
 
 /* ========= OUTFIT DELTA (gửi liên tục khi kéo/mặc/cởi) ========= */
-/** Chỉ gửi phần vừa đổi; `hard=true` cho mặc/cởi/reset (server sẽ ApplyDescriptionReset ở nhịp đó)
- *  Lưu ý: Delta có thể dùng Color3 vì không ghi vào Datastore. Dữ liệu persist dùng BodyColorsData (RGB).
- */
 export type OutfitDelta = Partial<{
 	// clothes (id) + face/tshirt
 	Shirt: number;
@@ -74,6 +82,19 @@ export type OutfitDelta = Partial<{
 	FrontAccessory: string;
 	BackAccessory: string;
 	WaistAccessory: string;
+
+	// layered clothing (CSV) – có thể thêm tuỳ Roblox update
+	JacketAccessory: string;
+	SweaterAccessory: string;
+	ShortsAccessory: string;
+	PantsAccessory: string;
+	DressSkirtAccessory: string;
+	TShirtAccessory: string;
+	LeftShoeAccessory: string;
+	RightShoeAccessory: string;
+	EyebrowAccessory: string;
+	EyelashAccessory: string;
+	EarAccessory: string;
 
 	// body colors (runtime only)
 	HeadColor: Color3;
@@ -94,19 +115,16 @@ export type OutfitDelta = Partial<{
 	hard?: boolean;
 }>;
 
-/* ========= OUTFITS V2 (THEO ID) – THÊM MỚI, KHÔNG ĐỤNG V1 ========= */
-/**
- * V2 dùng primary key là `id` (base62, 1–10 ký tự).
- * Cho phép clear data tạm thời qua remote `clearMyOutfits`.
- * Có thể dùng song song với V1; khi migrate xong thì chỉ dùng V2.
- */
+/* ========= OUTFITS V2 (THEO ID) ========= */
 export type OutfitV2 = {
-	id: string;              // primary key (1–10 ký tự a-zA-Z0-9)
-	name: string;            // tên hiển thị
-	assets: number[];        // danh sách AvatarAssetId
+	id: string; // primary key (1–10 ký tự a-zA-Z0-9)
+	name: string; // tên hiển thị
+	assets: number[]; // danh sách AvatarAssetId
 	snapshotThumb?: string;
-	updatedAt: number;       // os.time()
+	updatedAt: number; // os.time()
 	colors?: BodyColorsData; // NEW
+	/** NEW */
+	scales?: ScalesData;
 };
 
 export type OutfitSaveV2 = {
@@ -126,16 +144,17 @@ export type GlobalOutfitsFullV2 = Record<number, OutfitSaveV2>; // ownerId -> Ou
 
 /* ========= PUBLIC OUTFITS (tối thiểu) ========= */
 export type PublicOutfit = {
-	id: string; // base62 id public (1–10)
-	ownerId: number; // UserId người đăng
-	ownerName?: string; // cache tên hiển thị
-	name: string; // tên outfit
-	assets: number[]; // asset ids
+	id: string;
+	ownerId: number;
+	ownerName?: string;
+	name: string;
+	assets: number[];
 	snapshotThumb?: string;
-	updatedAt: number; // os.time()
-	colors?: BodyColorsData; // NEW
+	updatedAt: number;
+	colors?: BodyColorsData;
+	// NEW
+	scales?: ScalesData;
 };
-
 export type PublicOutfitsPayload =
 	| { full: true; data: Record<string, PublicOutfit> } // server push toàn bộ
 	| { patch?: Record<string, PublicOutfit>; remove?: string[] }; // server push delta
@@ -154,11 +173,11 @@ export const remotes = createRemotes({
 		outfitsSyncV2: remote<Client, [payload: OutfitsSyncPayloadV2]>(),
 		outfitsGlobalSyncV2: remote<Client, [data: GlobalOutfitsFullV2]>(),
 
-		// PUBLIC (server sẽ push full/patch/remove qua remote này)
-		publicOutfitsSync: remote<Client, [payload: PublicOutfitsPayload]>(), // NEW
+		// PUBLIC
+		publicOutfitsSync: remote<Client, [payload: PublicOutfitsPayload]>(),
+
 		emoteAnimResponse: remote<Client, [reqId: number, emoteId: number, animId?: string, error?: string]>(),
 		bundleResolved: remote<Client, [assetId: number, bundleId?: number]>(),
-
 	}),
 
 	server: namespace({
@@ -172,7 +191,17 @@ export const remotes = createRemotes({
 		/** GET outfits của chính user */
 		getOutfits: remote<Server, []>(),
 		/** POST tạo/cập nhật 1 outfit */
-		postOutfit: remote<Server, [name: string, assets: number[], snapshotThumb?: string, colors?: BodyColorsData]>(),
+		postOutfit: remote<
+			Server,
+			[
+				name: string,
+				assets: number[],
+				snapshotThumb?: string,
+				colors?: BodyColorsData,
+				scales?: ScalesData, // NEW
+				accessoryBlob?: string, // NEW
+			]
+		>(),
 		/** DELETE 1 outfit */
 		deleteOutfit: remote<Server, [name: string]>(),
 		/** PATCH đổi tên outfit */
@@ -183,13 +212,28 @@ export const remotes = createRemotes({
 		// ========= NEW: gửi delta liên tục, server gộp theo nhịp =========
 		outfitDelta: remote<Server, [delta: OutfitDelta]>(),
 
-		// ========= PUBLIC (tối thiểu) =========
-		getPublicOutfits: remote<Server, []>(), // NEW
+		// ========= PUBLIC =========
+		getPublicOutfits: remote<Server, []>(),
+		publishOutfit: remote<
+			Server,
+			[
+				name: string,
+				assets: number[],
+				snapshotThumb?: string,
+				colors?: BodyColorsData,
+				scales?: ScalesData, // NEW
+				accessoryBlob?: string, // NEW
+			]
+		>(),
+		unpublishOutfit: remote<Server, [publicId: string]>(),
 
-		publishOutfit: remote<Server, [name: string, assets: number[], snapshotThumb?: string, colors?: BodyColorsData]>(),
-		unpublishOutfit: remote<Server, [publicId: string]>(), // NEW: gỡ 1 public outfit theo id
-		wearOutfit: remote<Server, [name: string, assets: number[], hard?: boolean, colors?: BodyColorsData]>(), // NEW
+		// Mặc outfit
+		wearOutfit: remote<
+			Server,
+			[name: string, assets: number[], hard?: boolean, colors?: BodyColorsData, scales?: ScalesData]
+		>(),
+
 		requestEmoteAnim: remote<Server, [reqId: number, emoteId: number]>(),
-    	resolveBundleFromAssetId: remote<Server, [assetId: number]>(),
+		resolveBundleFromAssetId: remote<Server, [assetId: number]>(),
 	}),
 });

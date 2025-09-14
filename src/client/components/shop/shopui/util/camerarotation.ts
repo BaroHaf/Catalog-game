@@ -1306,6 +1306,7 @@ function getProfileDescriptionOf(userId: number): HumanoidDescription {
 }
 
 // Preview tất cả viewport + gửi server wearOutfit(name, assets, hard, colors)
+// Preview tất cả viewport + gửi server wearOutfit(name, assets, hard, colors, scales?)
 export function resetToProfileOutfit(hard = true) {
 	const lp = Players.LocalPlayer!;
 	const userId = lp.UserId;
@@ -1326,10 +1327,23 @@ export function resetToProfileOutfit(hard = true) {
 		rightLeg: c3ToRGB(desc.RightLegColor),
 	};
 
-	// 4) Lấy danh sách asset id từ desc
+	// 4) Scales từ profile (optional gửi lên server)
+	const scales = {
+		HeightScale: desc.HeightScale,
+		WidthScale: desc.WidthScale,
+		DepthScale: desc.DepthScale,
+		HeadScale: desc.HeadScale,
+		BodyTypeScale: desc.BodyTypeScale,
+		ProportionScale: desc.ProportionScale,
+	};
+
+	// 5) Asset IDs từ desc
 	const assets = collectAssetIdsFromDesc(desc);
-	remotes.server.wearOutfit.fire("[PROFILE]", assets, hard, colors);
+
+	// 6) Gửi server: colors + scales đều optional, server sẽ clamp & apply nếu có
+	remotes.server.wearOutfit.fire("[PROFILE]", assets, hard, colors, scales);
 }
+
 /* =========================
    EMOTE UGC PLAYBACK (CLIENT)
    ========================= */

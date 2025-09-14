@@ -1,7 +1,6 @@
-// src/server/players/services/publicOutfits.services.ts
 import { createCollection } from "@rbxts/lapis";
 import { Players, RunService } from "@rbxts/services";
-import { remotes, type PublicOutfit, BodyColorsData } from "shared/remotes";
+import { remotes, type PublicOutfit, BodyColorsData, ScalesData } from "shared/remotes";
 
 /* ===== Collection riêng cho PUBLIC ===== */
 type PublicDoc = Record<string, PublicOutfit>;
@@ -11,7 +10,7 @@ let publicDoc: Awaited<ReturnType<typeof publicCollection.load>>;
 let cache: PublicDoc = {};
 
 /* ===== DEV flags ===== */
-const CLEAR_PUBLIC_ON_START = true; // đổi về false nếu muốn giữ dữ liệu khi mở Studio
+const CLEAR_PUBLIC_ON_START = true; // set false khi qua giai đoạn test
 const DEBUG_DUMP = true;
 
 /* ===== Helpers ===== */
@@ -59,8 +58,8 @@ export async function initPublicOutfitsService() {
 		remotes.client.publicOutfitsSync.fire(plr, { full: true, data: cache });
 	});
 
-	/* ---------- PUBLISH (KHỚP REMOTES: nhận name, assets, snapshotThumb?, colors?) ---------- */
-	remotes.server.publishOutfit.connect(async (player, name, assets, snapshotThumb?, colors?: BodyColorsData) => {
+	/* ---------- PUBLISH (nhận name, assets, snapshotThumb?, colors?, scales?, accessoryBlob?) ---------- */
+	remotes.server.publishOutfit.connect(async (player, name, assets, snapshotThumb?, colors?: BodyColorsData, scales?: ScalesData, accessoryBlob?: string) => {
 		task.spawn(async () => {
 			try {
 				await ensureDoc();
@@ -85,7 +84,8 @@ export async function initPublicOutfitsService() {
 					assets: clean,
 					snapshotThumb,
 					updatedAt: os.time(),
-					colors, // LƯU MÀU
+					colors,
+					scales,         // NEW
 				};
 
 				cache = { ...cache, [id]: pub };
@@ -96,15 +96,13 @@ export async function initPublicOutfitsService() {
 					remotes.client.publicOutfitsSync.fire(p, { patch: { [id]: pub } });
 				}
 
-				// === LOG: total counts ===
+				// LOG
 				let total = 0, ownerTotal = 0;
 				for (const [, v] of pairs(cache)) {
 					total++;
 					if ((v as PublicOutfit).ownerId === player.UserId) ownerTotal++;
 				}
-				print(
-					`[Public] Published "${name}" by ${player.Name} -> ${id} | assets=${clean.size()} | colors=${colors !== undefined} | totalPublic=${total} | ownerPublic=${ownerTotal}`,
-				);
+				print(`[Public] Published "${name}" by ${player.Name} -> ${id} | assets=${clean.size()} | colors=${colors !== undefined} | scales=${scales !== undefined} | blob=${accessoryBlob !== undefined} | totalPublic=${total} | ownerPublic=${ownerTotal}`);
 			} catch (e) {
 				warn(`[Public] publishOutfit error: ${e}`);
 			}

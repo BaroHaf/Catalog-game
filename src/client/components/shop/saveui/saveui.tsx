@@ -241,7 +241,9 @@ export function SaveUI() {
 		}
 
 		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors);
-		print(`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`);
+		print(
+			`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`,
+		);
 	}
 
 	function handlePublishToggle(k: string) {
@@ -261,7 +263,7 @@ export function SaveUI() {
 			});
 			print(`[SaveUI] unpublish → ${pid} (${of.name})`);
 		} else {
-			remotes.server.publishOutfit.fire(of.name, of.assets, of.snapshotThumb, of.colors);
+			remotes.server.publishOutfit.fire(of.name, of.assets, of.snapshotThumb, of.colors, of.scales);
 			setPubByName((prev) => {
 				const cloneMap: Record<string, string> = {};
 				for (const [nm, id] of pairs(prev)) cloneMap[nm as string] = id as string;

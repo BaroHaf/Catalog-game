@@ -1,21 +1,20 @@
 // src/client/components/shop/shopui/util/layered.ts
 //
 // Utilities cho Layered Clothing: Jacket / Sweater / Shorts / DressSkirt / LeftShoe / RightShoe
-// - Không import @rbxts/types (Enum là global) để tránh lỗi "is not a module"
-// - Chỉ thao tác trên viewport humanoids: lấy desc từ getPrimaryHumanoid() rồi broadcast bằng applyDescriptionToAllTargets()
-// - Sử dụng GetAccessories(false) / SetAccessories(list, false) để chỉ đụng tới layered, không ảnh hưởng rigid accessories.
-// - Có debug log đầy đủ.
+// - Không import @rbxts/types (Enum là global)
+// - Chỉ thao tác trên viewport humanoids (getPrimaryHumanoid) & broadcast (applyDescriptionToAllTargets)
+// - Chỉ đụng LAYERED bằng GetAccessories(false)/SetAccessories(list, false)
+// - Có debug log và gửi payload lên server (remotes.server.outfitDelta.fire)
 //
 // Yêu cầu: file này ở cùng thư mục với camerarotation.ts
 
 import { applyDescriptionToAllTargets, getPrimaryHumanoid } from "./camerarotation";
+import { remotes, type OutfitDelta } from "shared/remotes";
 
 /* =========================
-   1) MAPPING VÀ ORDER
+   1) MAPPING & ORDER
    ========================= */
 
-// AvatarAssetType (layered) -> AccessoryType
-// Dùng Map<number, Enum.AccessoryType> với key = AvatarAssetType.Value để tránh lỗi type inference.
 const ACC_TYPE_BY_AVATAR = new Map<number, Enum.AccessoryType>([
 	[Enum.AvatarAssetType.JacketAccessory.Value, Enum.AccessoryType.Jacket],
 	[Enum.AvatarAssetType.SweaterAccessory.Value, Enum.AccessoryType.Sweater],
@@ -25,7 +24,6 @@ const ACC_TYPE_BY_AVATAR = new Map<number, Enum.AccessoryType>([
 	[Enum.AvatarAssetType.RightShoeAccessory.Value, Enum.AccessoryType.RightShoe],
 ]);
 
-// Default Order cho từng loại Layered (key theo AccessoryType.Value -> number)
 const DEFAULT_ORDER_BY_TYPE = new Map<number, number>([
 	[Enum.AccessoryType.LeftShoe.Value, 5],
 	[Enum.AccessoryType.RightShoe.Value, 10],
@@ -54,36 +52,41 @@ function toAccessoryType(assetType: Enum.AvatarAssetType): Enum.AccessoryType | 
 	return ACC_TYPE_BY_AVATAR.get(assetType.Value);
 }
 
-// Lấy HumanoidDescription của primary viewport humanoid
 function getDesc(): HumanoidDescription | undefined {
 	const h = getPrimaryHumanoid();
-	if (!h) return undefined;
-	return h.GetAppliedDescription();
+	return h?.GetAppliedDescription();
 }
 
-// Chỉ đọc/ghi danh sách Layered (includeRigidAccessories = false)
+// Only layered: includeRigidAccessories=false
 function readLayeredList(d: HumanoidDescription): Array<LayeredAccessoryInfo> {
-	// rbxts types: GetAccessories(false) trả Array<LayeredAccessoryInfo>
 	const arr = d.GetAccessories(false) as Array<LayeredAccessoryInfo>;
-	// clone nhẹ để tránh mutate trực tiếp mảng của engine
 	return arr.map((x) => ({
 		AssetId: x.AssetId,
 		AccessoryType: x.AccessoryType,
-		IsLayered: x.IsLayered,
+		IsLayered: true, // ensure
 		Order: x.Order,
 	}));
 }
 
 function writeLayeredList(d: HumanoidDescription, list: Array<LayeredAccessoryInfo>) {
-	// Lưu ý: nếu set Order, phải IsLayered = true
 	for (let i = 0; i < list.size(); i++) {
-		if (list[i].Order !== undefined && list[i].IsLayered !== true) {
-			list[i].IsLayered = true;
-		}
+		if (list[i].Order !== undefined) list[i].IsLayered = true;
 	}
-	// includeRigidAccessories=false → chỉ update layered, không đụng rigid
 	const [ok, err] = pcall(() => d.SetAccessories(list as Array<unknown>, false));
 	if (!ok) warn("[LAYERED][ERROR] HumanoidDescription:SetAccessories failed:", err);
+}
+
+// Chuẩn hoá list layered thành payload nhẹ để gửi server: [assetId, typeValue, order]
+type LayeredPayloadTuple = [number, number, number];
+function serializeLayered(list: Array<LayeredAccessoryInfo>): LayeredPayloadTuple[] {
+	const out = new Array<LayeredPayloadTuple>();
+	for (let i = 0; i < list.size(); i++) {
+		const it = list[i];
+		const typeVal = it.AccessoryType.Value;
+		const order = it.Order ?? 30;
+		out.push([it.AssetId, typeVal, order]);
+	}
+	return out;
 }
 
 /* =========================
@@ -92,17 +95,11 @@ function writeLayeredList(d: HumanoidDescription, list: Array<LayeredAccessoryIn
 
 export function isLayeredApplied(assetType: Enum.AvatarAssetType, assetId: number): boolean {
 	if (!isLayeredAvatarAssetType(assetType) || assetId <= 0) return false;
-
 	const accType = toAccessoryType(assetType);
-	if (!accType) {
-		warn(`[LAYERED][DEBUG] No AccessoryType mapping for AvatarAssetType=${assetType.Name}`);
-		return false;
-	}
-
+	if (!accType) return false;
 	const d = getDesc();
 	if (!d) return false;
 	const list = readLayeredList(d);
-
 	for (let i = 0; i < list.size(); i++) {
 		const it = list[i];
 		if (it.AssetId === assetId && it.AccessoryType === accType) return true;
@@ -111,11 +108,10 @@ export function isLayeredApplied(assetType: Enum.AvatarAssetType, assetId: numbe
 }
 
 type TryOnLayeredOpts = {
-	order?: number; // nếu không cung cấp, lấy từ DEFAULT_ORDER_BY_TYPE
-	replaceSameType?: boolean; // true = thay thế cùng loại, false = thêm vào (mặc nhiều layer cùng loại)
+	order?: number;
+	replaceSameType?: boolean; // true = thay toàn bộ cùng loại
 };
 
-/** Mặc 1 món layered vào viewport humanoids (broadcast qua applyDescriptionToAllTargets) */
 export function tryOnLayered(assetType: Enum.AvatarAssetType, assetId: number, opts?: TryOnLayeredOpts) {
 	if (!isLayeredAvatarAssetType(assetType) || assetId <= 0) return;
 
@@ -128,16 +124,14 @@ export function tryOnLayered(assetType: Enum.AvatarAssetType, assetId: number, o
 	const base = getDesc();
 	if (!base) return;
 
-	const d = base; // chỉnh trực tiếp và broadcast
+	const d = base;
 	const list = readLayeredList(d);
 
-	// Nếu muốn thay thế cùng loại → xoá hết entries có AccessoryType này
 	if (opts?.replaceSameType) {
 		for (let i = list.size() - 1; i >= 0; i--) {
 			if (list[i].AccessoryType === accType) list.remove(i);
 		}
 	} else {
-		// nếu đã tồn tại chính assetId + loại này thì bỏ qua (tránh nhân đôi)
 		for (let i = 0; i < list.size(); i++) {
 			if (list[i].AssetId === assetId && list[i].AccessoryType === accType) {
 				warn(`[LAYERED][DEBUG] Asset ${assetId} (${accType.Name}) đã có trong list → bỏ qua`);
@@ -152,22 +146,27 @@ export function tryOnLayered(assetType: Enum.AvatarAssetType, assetId: number, o
 	const entry: LayeredAccessoryInfo = {
 		AssetId: assetId,
 		AccessoryType: accType,
-		IsLayered: true, // ⚠ bắt buộc true khi có Order
+		IsLayered: true,
 		Order: order,
 	};
 	list.push(entry);
 
-	// Debug
 	print(
 		`[LAYERED][ADD] +${assetId} type=${accType.Name} order=${order} → size=${list.size()} (replace=${opts?.replaceSameType === true})`,
 	);
 
-	// Ghi lại vào desc, sau đó broadcast toàn bộ viewport humanoids (hard apply)
+	// Apply to local viewports
 	writeLayeredList(d, list);
 	applyDescriptionToAllTargets(d, true);
+
+	// 🔥 Gửi server như tryOnAsset: hard=true + LayeredAccessories (tuple[])
+	const payload = {
+		LayeredAccessories: serializeLayered(list),
+		hard: true,
+	} as unknown as OutfitDelta;
+	remotes.server.outfitDelta.fire(payload);
 }
 
-/** Gỡ 1 món layered (đúng id + đúng loại) khỏi viewport humanoids */
 export function takeOffLayered(assetType: Enum.AvatarAssetType, assetId: number) {
 	if (!isLayeredAvatarAssetType(assetType) || assetId <= 0) return;
 
@@ -194,12 +193,20 @@ export function takeOffLayered(assetType: Enum.AvatarAssetType, assetId: number)
 
 	print(`[LAYERED][REMOVE] -${assetId} type=${accType.Name} removed=${removed} → size=${list.size()}`);
 
+	// Apply to local viewports
 	writeLayeredList(d, list);
 	applyDescriptionToAllTargets(d, true);
+
+	// 🔥 Gửi server sau khi remove
+	const payload = {
+		LayeredAccessories: serializeLayered(list),
+		hard: true,
+	} as unknown as OutfitDelta;
+	remotes.server.outfitDelta.fire(payload);
 }
 
 /* =========================
-   4) DEBUG TIỆN DỤNG
+   4) DEBUG
    ========================= */
 
 export function debugDumpLayered() {
@@ -212,8 +219,6 @@ export function debugDumpLayered() {
 	print(`[LAYERED][DUMP] count=${list.size()}`);
 	for (let i = 0; i < list.size(); i++) {
 		const it = list[i];
-		print(
-			`  [${i}] id=${it.AssetId} type=${it.AccessoryType.Name} order=${it.Order} layered=${it.IsLayered ?? false}`,
-		);
+		print(`  [${i}] id=${it.AssetId} type=${it.AccessoryType.Name} order=${it.Order} layered=${it.IsLayered ?? false}`);
 	}
 }
