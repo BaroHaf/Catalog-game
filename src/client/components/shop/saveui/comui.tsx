@@ -17,7 +17,7 @@ import { buildDescriptionFromOutfit } from "./utils/build-desc-from-assets";
 import { applyDescriptionToAllTargets } from "../shopui/util/camerarotation";
 import { SquareLoader } from "client/components/ui/loading";
 
-const MIN_LOADING = 2;
+const MIN_LOADING = 1;
 
 export function ComUI(): JSX.Element {
 	const rem = useRem();
@@ -170,7 +170,12 @@ export function ComUI(): JSX.Element {
 
 				{/* Search bar → chỉ render khi hết loading */}
 				{!isInitialLoading && (
-					<Frame size={new UDim2(1, 0, 0, rem(6))} backgroundTransparency={1} clipsDescendants layoutOrder={1}>
+					<Frame
+						size={new UDim2(1, 0, 0, rem(6))}
+						backgroundTransparency={1}
+						clipsDescendants
+						layoutOrder={1}
+					>
 						<Image
 							image={images.ui.search_icon}
 							imageColor={Color3.fromRGB(163, 162, 165)}
@@ -185,7 +190,9 @@ export function ComUI(): JSX.Element {
 							<TextField
 								text={query}
 								change={{ Text: (rbx) => setQuery((rbx as TextBox).Text) }}
-								event={{ FocusLost: (rbx, enterPressed) => onSubmitFilter(enterPressed, rbx as TextBox) }}
+								event={{
+									FocusLost: (rbx, enterPressed) => onSubmitFilter(enterPressed, rbx as TextBox),
+								}}
 								clearTextOnFocus={false}
 								placeholderText="Enter ID..."
 								placeholderColor={palette.black.Lerp(palette.white, 0.6)}
@@ -277,7 +284,7 @@ export function ComUI(): JSX.Element {
 						<frame
 							AnchorPoint={new Vector2(0.5, 0.5)}
 							Position={new UDim2(0.5, 0, 0.5, 0)}
-							Size={new UDim2(0, rem(20),0, rem(20))}
+							Size={new UDim2(0, rem(20), 0, rem(20))}
 							BackgroundTransparency={1}
 						>
 							<SquareLoader />

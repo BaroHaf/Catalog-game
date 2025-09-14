@@ -1,5 +1,5 @@
 // src/client/components/shop/saveui/saveui.tsx
-import React, { useEffect, useMemo, useRef, useState } from "@rbxts/react"; // ★ useRef
+import React, { useEffect, useMemo, useRef, useState } from "@rbxts/react";
 import { Frame } from "client/components/ui/frame";
 import { useRem, useStore } from "client/hooks";
 import { Image } from "client/components/ui/image";
@@ -20,19 +20,24 @@ import { DisplaySaveOpt } from "./displaysaveopt";
 import { Players } from "@rbxts/services";
 import { Closebutsaveui } from "./closebut";
 import { PublicIdBar } from "./publicidbar";
-import { SquareLoader } from "client/components/ui/loading"; // ★
+import { SquareLoader } from "client/components/ui/loading";
 
-// ★ Giữ cảm giác như Displayitem
-const MIN_LOADING = 2;
+const MIN_LOADING = 1;
 
-export function SaveUI() {
+// helper đếm key (thay cho Object.values)
+function countKeys<T>(map: Record<string, T>): number {
+	let c = 0;
+	for (const [,] of pairs(map)) c++;
+	return c;
+}
+
+export function SaveUI(): JSX.Element {
 	const rem = useRem();
 	const store = useStore();
 
 	const [save, setSave] = useState<OutfitSave>({ outfits: {}, current: undefined });
 	const [openKey, setOpenKey] = useState<string | undefined>(undefined);
 
-	// ★ Loading state & timing
 	const [isInitialLoading, setIsInitialLoading] = useState(false);
 	const loadStartRef = useRef<number>(0);
 	const firstPayloadSeenRef = useRef(false);
@@ -43,22 +48,23 @@ export function SaveUI() {
 		task.delay(remain, () => setIsInitialLoading(false));
 	};
 
-	/* =======================
-	 * A) OUTFITS (private)
-	 * ======================= */
+	/* ======================= A) OUTFITS (private) ======================= */
 	useEffect(() => {
-		// ★ Bắt đầu loading ngay khi ask server
 		setIsInitialLoading(true);
 		loadStartRef.current = time();
 
 		const disconnect = remotes.client.outfitsSync.connect((payload: OutfitsSyncPayload) => {
 			task.defer(() => {
 				if ("full" in payload && payload.full) {
-					setSave(() => payload.data ?? { outfits: {}, current: undefined });
-					// ★ Đánh dấu đã nhận payload đầu, nhưng đợi build desc xong mới tắt loading (xem effect bên dưới)
+					const nextSave = payload.data ?? { outfits: {}, current: undefined };
+					setSave(() => nextSave);
+
 					firstPayloadSeenRef.current = true;
+					// nếu DB rỗng thì tắt loader luôn sau MIN_LOADING
+					if (countKeys(nextSave.outfits) === 0) finishLoadingAfterMinDelay();
 					return;
 				}
+
 				setSave((prev) => {
 					let localSave: OutfitSave = { ...prev, outfits: { ...prev.outfits } };
 
@@ -83,8 +89,11 @@ export function SaveUI() {
 						if (p.current !== undefined) localSave.current = p.current;
 					}
 
-					// ★ Nhận được bất kỳ payload nào cũng coi là đã “có dữ liệu”
 					firstPayloadSeenRef.current = true;
+
+					// nếu sau patch/remove vẫn rỗng → tắt loader
+					if (countKeys(localSave.outfits) === 0) finishLoadingAfterMinDelay();
+
 					return localSave;
 				});
 			});
@@ -137,7 +146,7 @@ export function SaveUI() {
 		for (const [k, oldDesc] of descsByKey) if (!newDescs.has(k)) pcall(() => oldDesc.Destroy());
 		setDescsByKey(newDescs);
 
-		// ★ Khi đã nhận payload đầu tiên và build xong descs đợt đầu → tắt loader (sau MIN_LOADING)
+		// đã có payload đầu + build xong đợt đầu → tắt loader sau MIN_LOADING
 		if (firstPayloadSeenRef.current) finishLoadingAfterMinDelay();
 
 		return () => {
@@ -146,9 +155,7 @@ export function SaveUI() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [buildSig]);
 
-	/* =======================
-	 * B) PUBLIC (global)
-	 * ======================= */
+	/* ======================= B) PUBLIC (global) ======================= */
 	const [pubByName, setPubByName] = useState<Record<string, string>>({});
 
 	useEffect(() => {
@@ -213,9 +220,7 @@ export function SaveUI() {
 		return pubByName[of.name];
 	};
 
-	/* =======================
-	 * C) Handlers
-	 * ======================= */
+	/* ======================= C) Handlers ======================= */
 	function handleWear(k: string) {
 		const of = save.outfits[k];
 		if (!of) return;
@@ -240,7 +245,8 @@ export function SaveUI() {
 			});
 		}
 
-		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors);
+		// TRƯỚC: remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors);
+		remotes.server.wearOutfit.fire(of.name, of.assets, true, of.colors, of.scales);
 		print(
 			`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`,
 		);
@@ -280,9 +286,7 @@ export function SaveUI() {
 		remotes.server.deleteOutfit.fire(of.name);
 	}
 
-	/* =======================
-	 * D) Render
-	 * ======================= */
+	/* ======================= D) Render ======================= */
 	const cols = 5;
 	const cellSize = rem(15);
 	const gap = rem(1);
@@ -321,7 +325,7 @@ export function SaveUI() {
 					StartCorner={Enum.StartCorner.TopLeft}
 				/>
 
-				{/* ★ Trong lúc loading: KHÔNG render cell & plus (ẩn sạch nội dung) */}
+				{/* Trong lúc loading: ẩn sạch nội dung */}
 				{!isInitialLoading &&
 					(() => {
 						const children: Record<string, React.Element> = {};
@@ -372,7 +376,7 @@ export function SaveUI() {
 							);
 						}
 
-						// Nút "+" → chỉ hiện khi hết loading
+						// Nút "+"
 						children["plus"] = (
 							<Button
 								layoutOrder={9999}
@@ -397,7 +401,7 @@ export function SaveUI() {
 					})()}
 			</scrollingframe>
 
-			{/* Loader overlay giống Displayitem */}
+			{/* Loader overlay */}
 			{isInitialLoading && (
 				<frame BackgroundTransparency={1} Size={new UDim2(1, 0, 1, 0)}>
 					<frame
