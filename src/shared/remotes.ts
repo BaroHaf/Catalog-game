@@ -9,7 +9,15 @@ export type ItemData = {
 	imageUrl?: string;
 	acquiredAt: number;
 };
-
+export type AnimationSlots = {
+	Walk: number;
+	Run: number;
+	Idle: number;
+	Jump: number;
+	Fall: number;
+	Swim: number;
+	Climb: number;
+};
 export type InventorySyncPayload = {
 	full?: boolean;
 	data?: Record<string, ItemData>;
@@ -230,7 +238,14 @@ export const remotes = createRemotes({
 		// Mặc outfit
 		wearOutfit: remote<
 			Server,
-			[name: string, assets: number[], hard?: boolean, colors?: BodyColorsData, scales?: ScalesData]
+			[
+				name: string,
+				assets: number[],
+				hard?: boolean,
+				colors?: BodyColorsData,
+				scales?: ScalesData,
+				animSlots?: AnimationSlots,
+			] // ⬅️ thêm animSlots
 		>(),
 
 		requestEmoteAnim: remote<Server, [reqId: number, emoteId: number]>(),

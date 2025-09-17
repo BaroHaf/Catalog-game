@@ -25,6 +25,7 @@ export const SHOP_ALERT_STYLE = {
 	resetoutfit: { emoji: "✨", color: palette.green },
 	remove: { emoji: "🚫", color: palette.red },
 	saveoutfit: { emoji: "✅", color: palette.green },
+	error:{emoji: "⚠️", color: palette.flamingo}
 };
 
 /** Messages (dùng trực tiếp cho sendAlert) */

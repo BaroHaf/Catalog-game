@@ -1,12 +1,14 @@
 // src/client/components/shop/shopui/util/animations.ts
 // Utilities cho Animation Packs (AvatarAnimations)
-// - Không đụng remotes/server.
-// - Chỉ preview bằng applyDescriptionToAllTargets(desc, hard=false).
-// - Nhận bundleId (số nhỏ, vd 2623795) -> resolve outfitId -> đọc slots.
+// - Không đụng remotes/server trực tiếp (chỉ preview applyDescription).
+// - Server sync thông qua remotes.server.wearOutfit.
 // - Có cache để tránh lag khi render hàng loạt.
 
 import { Players, AssetService } from "@rbxts/services";
 import { applyDescriptionToAllTargets, getPrimaryHumanoid } from "./camerarotation";
+import { remotes } from "shared/remotes";
+import { sendAlert } from "client/alerts";
+import { SHOP_ALERT_STYLE } from "shared/constants/constant";
 
 /* =========================
    1) TYPES & CACHE
@@ -22,19 +24,14 @@ export type AnimationSlots = {
 	Climb: number;
 };
 
-// Cache: bundleId -> slots
-const SlotsCache = new Map<number, AnimationSlots>();
-// Cache phụ: bundleId -> outfitId
-const OutfitIdCache = new Map<number, number>();
-
-// Lưu slots “trước khi try-on bundle lần đầu” để có thể take off quay lại
-let PrevSlots: AnimationSlots | undefined;
+const SlotsCache = new Map<number, AnimationSlots>(); // bundleId -> slots
+const OutfitIdCache = new Map<number, number>();      // bundleId -> outfitId
+let PrevSlots: AnimationSlots | undefined;            // Lưu slots trước khi tryOn
 
 /* =========================
    2) RESOLVE HELPERS
    ========================= */
 
-// Lấy outfitId duy nhất trong bundle (có cache)
 function resolveOutfitIdFromBundle(bundleId: number): number | undefined {
 	if (OutfitIdCache.has(bundleId)) return OutfitIdCache.get(bundleId);
 
@@ -52,13 +49,11 @@ function resolveOutfitIdFromBundle(bundleId: number): number | undefined {
 	return undefined;
 }
 
-// Lấy HumanoidDescription từ outfitId (API sync hợp lệ trên client)
 function getDescFromOutfit(outfitId: number): HumanoidDescription | undefined {
 	const [ok, desc] = pcall(() => Players.GetHumanoidDescriptionFromOutfitId(outfitId));
 	return ok ? (desc as HumanoidDescription) : undefined;
 }
 
-// Trích slots từ HumanoidDescription
 function readSlots(d: HumanoidDescription): AnimationSlots {
 	return {
 		Walk: d.WalkAnimation,
@@ -71,7 +66,6 @@ function readSlots(d: HumanoidDescription): AnimationSlots {
 	};
 }
 
-// Gán slots vào HumanoidDescription (in-place)
 function writeSlots(d: HumanoidDescription, s: AnimationSlots) {
 	d.WalkAnimation = s.Walk;
 	d.RunAnimation = s.Run;
@@ -83,10 +77,9 @@ function writeSlots(d: HumanoidDescription, s: AnimationSlots) {
 }
 
 /* =========================
-   3) PUBLIC – BUNDLE LEVEL
+   3) BUNDLE LEVEL
    ========================= */
 
-/** Lấy mapping slot -> assetId từ 1 bundle (có cache) */
 export function getAnimationSlotsFromBundle(bundleId: number): AnimationSlots | undefined {
 	if (bundleId <= 0) return undefined;
 	const cached = SlotsCache.get(bundleId);
@@ -103,7 +96,6 @@ export function getAnimationSlotsFromBundle(bundleId: number): AnimationSlots | 
 	return slots;
 }
 
-/** Kiểm tra hiện đang “mặc” đúng các slot của bundle này chưa (đọc nhanh, có cache) */
 export function isAnimationBundleApplied(bundleId: number): boolean {
 	const hum = getPrimaryHumanoid();
 	if (!hum) return false;
@@ -123,10 +115,8 @@ export function isAnimationBundleApplied(bundleId: number): boolean {
 	);
 }
 
-/** TRY ON: áp toàn bộ slots của bundle vào tất cả viewport humanoids (SOFT apply) */
 export function tryOnAnimationBundle(bundleId: number) {
 	if (bundleId <= 0) return;
-
 	const hum = getPrimaryHumanoid();
 	if (!hum) return;
 
@@ -136,47 +126,57 @@ export function tryOnAnimationBundle(bundleId: number) {
 		return;
 	}
 
-	// Lưu slots cũ lần đầu (để có thể take off quay lại)
 	if (!PrevSlots) {
 		const cur = hum.GetAppliedDescription();
 		PrevSlots = readSlots(cur);
 	}
 
-	// Apply (soft)
+	// Preview (soft)
 	const d = hum.GetAppliedDescription();
 	writeSlots(d, targetSlots);
-	applyDescriptionToAllTargets(d, false); // ✅ soft apply, KHÔNG reset rig
+	applyDescriptionToAllTargets(d, false);
+
+	// Sync server
+	remotes.server.wearOutfit.fire(`[ANIM_BUNDLE:${bundleId}]`, [], false, undefined, undefined, targetSlots);
 }
 
-/** TAKE OFF: khôi phục về slots trước khi tryOnAnimationBundle (SOFT apply) */
 export function takeOffAnimationBundle() {
 	const hum = getPrimaryHumanoid();
 	if (!hum) return;
 	if (!PrevSlots) return;
 
+	// Local revert
 	const d = hum.GetAppliedDescription();
 	writeSlots(d, PrevSlots);
-	applyDescriptionToAllTargets(d, false); // ✅ soft apply
+	applyDescriptionToAllTargets(d, false);
+
+	// Server revert
+	remotes.server.wearOutfit.fire(
+		"[ANIM_TAKEOFF]",
+		[],
+		false,
+		undefined,
+		undefined,
+		PrevSlots,
+	);
+
 	PrevSlots = undefined;
 }
 
-/** Đọc nhanh slots hiện tại (tiện debug/UI) */
 export function getCurrentAnimationSlots(): AnimationSlots | undefined {
 	const hum = getPrimaryHumanoid();
 	if (!hum) return undefined;
 	return readSlots(hum.GetAppliedDescription());
 }
 
-/** Xoá bộ nhớ “trước khi try-on” (gọi sau khi Reset về Profile nếu muốn) */
 export function clearSavedPrevSlots() {
 	PrevSlots = undefined;
 }
 
 /* =========================
-   4) PUBLIC – SINGLE ANIMATION
+   4) SINGLE ANIMATION
    ========================= */
 
-/** Kiểm tra 1 animation asset (riêng lẻ) có đang được apply trong HumanoidDescription không */
 export function isSingleAnimationApplied(assetId: number): boolean {
 	const hum = getPrimaryHumanoid();
 	if (!hum || assetId <= 0) return false;
@@ -193,14 +193,12 @@ export function isSingleAnimationApplied(assetId: number): boolean {
 	);
 }
 
-/** TAKE OFF 1 animation asset (bỏ riêng lẻ ra khỏi HumanoidDescription – SOFT apply) */
 export function takeOffSingleAnimation(assetId: number) {
 	const hum = getPrimaryHumanoid();
 	if (!hum || assetId <= 0) return;
 
 	const d = hum.GetAppliedDescription();
 
-	// Reset slot nào trùng assetId về PrevSlots nếu có, nếu không thì 0
 	if (d.WalkAnimation === assetId) d.WalkAnimation = PrevSlots ? PrevSlots.Walk : 0;
 	if (d.RunAnimation === assetId) d.RunAnimation = PrevSlots ? PrevSlots.Run : 0;
 	if (d.IdleAnimation === assetId) d.IdleAnimation = PrevSlots ? PrevSlots.Idle : 0;
@@ -209,10 +207,39 @@ export function takeOffSingleAnimation(assetId: number) {
 	if (d.SwimAnimation === assetId) d.SwimAnimation = PrevSlots ? PrevSlots.Swim : 0;
 	if (d.ClimbAnimation === assetId) d.ClimbAnimation = PrevSlots ? PrevSlots.Climb : 0;
 
-	applyDescriptionToAllTargets(d, false); // ✅ soft apply
+	applyDescriptionToAllTargets(d, false);
 }
-// an toàn với assetType nil và không đụng .Name
-// util/animations.ts
+
 export function isAnimationBundleType(bundleType?: Enum.BundleType): boolean {
 	return bundleType === Enum.BundleType.Animations;
+}
+
+/* =========================
+   5) SAFE WRAPPERS
+   ========================= */
+
+let lastAction = 0;
+const COOLDOWN = 0.3; // giây
+
+function canProceed(): boolean {
+	const now = time();
+	if (now - lastAction < COOLDOWN) {
+		sendAlert({
+			...SHOP_ALERT_STYLE.error,
+			message: "⏳ Please wait before trying again!",
+		});
+		return false;
+	}
+	lastAction = now;
+	return true;
+}
+
+export function safeTryOnBundle(id: number) {
+	if (!canProceed()) return;
+	tryOnAnimationBundle(id);
+}
+
+export function safeTakeOffBundle() {
+	if (!canProceed()) return;
+	takeOffAnimationBundle();
 }

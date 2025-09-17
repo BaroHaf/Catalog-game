@@ -94,14 +94,39 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 
 		let assetType: Enum.AvatarAssetType | undefined;
 
-		// === NHÁNH ANIMATIONS ===
+		// ==== Animations (bundle) ====
 		if (page.lower() === "animations") {
 			searchParams.BundleTypes = [Enum.BundleType.Animations];
-			searchParams.SortType = Enum.CatalogSortType.Relevance;
 			searchParams.SearchKeyword =
-				keyword !== "" ? keyword : subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
-		} else {
-			// === Các page khác dùng AssetTypes như cũ ===
+				keyword !== ""
+					? keyword
+					: subpage.filterType === "keyword"
+					? (subpage.value ?? "")
+					: "";
+		}
+		// ==== Body (body parts assets) ====
+		else if (page === "Body") {
+			// Chỉ lọc theo AssetTypes của body part, và xem cả offsale
+			searchParams.IncludeOffSale = true;
+			// searchParams.CategoryFilter = Enum.CatalogCategoryFilter.BodyParts;
+
+			if (subpage.filterType === "assetType") {
+				assetType = (Enum.AvatarAssetType as unknown as Record<string, Enum.AvatarAssetType>)[
+					subpage.value ?? ""
+				];
+			} else {
+				assetType = Enum.AvatarAssetType.Torso;
+			}
+
+			if (!assetType) {
+				setIsInitialLoading(false);
+				return;
+			}
+			searchParams.AssetTypes = [assetType];
+			searchParams.SearchKeyword = "";
+		}
+		// ==== Các page còn lại ====
+		else {
 			if (keyword !== "") {
 				assetType = getAssetTypeByPage(page);
 				if (!assetType) {
@@ -122,7 +147,12 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 				searchParams.SearchKeyword = "";
 			} else {
 				assetType = getAssetTypeByPage(page);
-				if (subpage.filterType === "keyword" && (subpage.value ?? "").lower() === "bangs") {
+
+				if (
+					page === "Hair" &&
+					subpage.filterType === "keyword" &&
+					(subpage.value ?? "").lower() === "bangs"
+				) {
 					assetType = Enum.AvatarAssetType.FaceAccessory;
 				}
 				if (!assetType) {
@@ -130,14 +160,17 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 					return;
 				}
 				searchParams.AssetTypes = [assetType];
-				searchParams.SearchKeyword = subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
+				searchParams.SearchKeyword =
+					subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
 			}
 		}
 
 		let cancelled = false;
 
 		task.spawn(() => {
-			const [success, catalogPages] = pcall(() => AvatarEditorService.SearchCatalog(searchParams));
+			const [success, catalogPages] = pcall(() =>
+				AvatarEditorService.SearchCatalog(searchParams),
+			);
 
 			const finish = () => {
 				const elapsed = time() - startTime;
@@ -158,7 +191,7 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 			if (page.lower() === "animations") {
 				assetItems = convertAnimationBundles(first);
 			} else {
-				assetItems = convertResults(first, assetType!); // ✅ giữ nguyên hàm convertResults
+				assetItems = convertResults(first, assetType!);
 				if (subpage.filterType === "keyword" && (subpage.value ?? "") !== "") {
 					assetItems = filterKeywordItems(assetItems, subpage.value!) as AssetItem[];
 				}
@@ -205,8 +238,10 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 				if (page.lower() === "animations") {
 					newItems = convertAnimationBundles(newPage);
 				} else {
-					const inferred = (items[0]?.AssetType as Enum.AvatarAssetType) ?? Enum.AvatarAssetType.TShirt;
-					newItems = convertResults(newPage, inferred); // ✅ giữ nguyên hàm convertResults
+					const inferred =
+						(items[0]?.AssetType as Enum.AvatarAssetType) ??
+						Enum.AvatarAssetType.TShirt;
+					newItems = convertResults(newPage, inferred);
 				}
 
 				setItems((prev) => {
@@ -231,13 +266,21 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 	const PanelComponent = specialKey ? SPECIAL_PANELS[specialKey] : undefined;
 
 	return (
-		<Frame size={new UDim2(0.7, 0, 1, 0)} backgroundColor={Color3.fromRGB(38, 38, 39)} visible={visible}>
+		<Frame
+			size={new UDim2(0.7, 0, 1, 0)}
+			backgroundColor={Color3.fromRGB(38, 38, 39)}
+			visible={visible}
+		>
 			<uicorner CornerRadius={new UDim(0, 8)} />
 			<Displaysearch />
 			<uilistlayout />
 			{!catalogVisible && PanelComponent && <PanelComponent />}
 
-			<Frame size={new UDim2(1, 0, 1, 0)} backgroundTransparency={1} visible={catalogVisible}>
+			<Frame
+				size={new UDim2(1, 0, 1, 0)}
+				backgroundTransparency={1}
+				visible={catalogVisible}
+			>
 				<uiflexitem FlexMode="Fill" />
 				<scrollingframe
 					Size={new UDim2(1, 0, 1, 0)}
@@ -276,12 +319,20 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 									imageUrl={thumbUrl}
 									creator={item.Creator}
 									assetType={item.AssetType as Enum.AvatarAssetType}
-									bundleType={page.lower() === "animations" ? Enum.BundleType.Animations : undefined} // 🔹 thêm dòng này
+									bundleType={
+										page.lower() === "animations"
+											? Enum.BundleType.Animations
+											: undefined
+									}
 									LayoutOrder={index}
 									cellW={cellW}
 									index={index}
 									open={selectedId === item.Id}
-									onToggleOpen={() => setSelectedId((cur) => (cur === item.Id ? undefined : item.Id))}
+									onToggleOpen={() =>
+										setSelectedId((cur) =>
+											cur === item.Id ? undefined : item.Id,
+										)
+									}
 								/>
 							);
 						})}
@@ -304,7 +355,10 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 	);
 }
 
-function convertResults(results: SearchCatalogResult[], assetType: Enum.AvatarAssetType): AssetItem[] {
+function convertResults(
+	results: SearchCatalogResult[],
+	assetType: Enum.AvatarAssetType,
+): AssetItem[] {
 	return results.map((r) => ({
 		Id: r.Id,
 		Name: r.Name,
@@ -338,6 +392,7 @@ function convertAnimationBundles(results: SearchCatalogResult[]): AssetItem[] {
 }
 
 function shouldLoadNext(sc: ScrollingFrame) {
-	const bottom = sc.AbsoluteWindowSize.Y * (2 - SCROLL_LOAD_FACTOR) + sc.CanvasPosition.Y;
+	const bottom =
+		sc.AbsoluteWindowSize.Y * (2 - SCROLL_LOAD_FACTOR) + sc.CanvasPosition.Y;
 	return bottom >= sc.AbsoluteCanvasSize.Y;
 }
