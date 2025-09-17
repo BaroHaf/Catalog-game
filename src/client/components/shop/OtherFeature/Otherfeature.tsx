@@ -5,6 +5,7 @@ import { useRem } from "client/hooks";
 import { Savebutton } from "./savebut";
 import { ComButton } from "./communitybut";
 import { ResetBut } from "./resetbut";
+import { MuteButton } from "./mutebutton";
 export function Otherfeature() {
     const rem = useRem();
     return (
@@ -14,6 +15,7 @@ export function Otherfeature() {
         <Savebutton/>
         <ComButton/>
         <ResetBut/>
+        <MuteButton/>
       </Frame>
     );
 }

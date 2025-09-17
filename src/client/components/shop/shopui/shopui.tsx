@@ -10,6 +10,9 @@ import { Viewportui } from "./displayviewportui";
 import { Displayitem } from "./displayitem";
 import { Checkincart } from "./checkoutpage";
 import { Assetpanel } from "./displaywearasset";
+import { Lighting } from "@rbxts/services";
+
+const BLUR_NAME = "ShopBlur"; // đặt trùng với cái bạn đã tạo sẵn
 
 export function ShopUI() {
   const isOpen = useSelector(selectIsShopOpen);
@@ -17,14 +20,26 @@ export function ShopUI() {
   const checkoutSolo = useSelector(selectCheckoutSolo);
 
   const viewportVisible = !checkout || (checkout && !checkoutSolo);
-  const displayVisible  = !checkout;
-  const cartVisible     = checkout;
+  const displayVisible = !checkout;
+  const cartVisible = checkout;
 
   const rem = useRem();
   const [t, api] = useMotion(0);
 
-  useEffect(() => { if (isOpen) api.spring(1, springs.gentle); }, []);
-  useUpdateEffect(() => { api.spring(isOpen ? 1 : 0, springs.gentle); }, [isOpen]);
+  useEffect(() => {
+    if (isOpen) api.spring(1, springs.gentle);
+  }, []);
+  useUpdateEffect(() => {
+    api.spring(isOpen ? 1 : 0, springs.gentle);
+  }, [isOpen]);
+
+  // Bật/tắt blur theo trạng thái shop
+  useEffect(() => {
+    const blur = Lighting.FindFirstChild(BLUR_NAME) as BlurEffect;
+    if (!blur) return;
+
+    blur.Enabled = isOpen;
+  }, [isOpen]);
 
   return (
     <>
@@ -45,7 +60,6 @@ export function ShopUI() {
         </Frame>
 
         <Displayitem visible={displayVisible} />
-
         <Checkincart visible={cartVisible} />
       </Frame>
     </>

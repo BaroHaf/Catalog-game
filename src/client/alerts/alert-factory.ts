@@ -1,6 +1,6 @@
 import { throttle } from "@rbxts/set-timeout";
 import { store } from "client/store";
-import { Alert, AlertScope, selectAlerts } from "client/store/alert";
+import { Alert, selectAlerts } from "client/store/alert";
 import { palette } from "shared/constants/palette";
 
 const defaultAlert: Alert = {
@@ -8,16 +8,12 @@ const defaultAlert: Alert = {
 	emoji: "✅",
 	message: "Alert",
 	color: palette.green,
-	duration: 5,
+	duration: 2,
 	visible: true,
 };
 
 let nextAlertId = 0;
 
-const scopedThrottles: Record<AlertScope, (callback: () => number) => number> = {
-	money: throttle((callback) => callback(), 0.8),
-	ranking: throttle((callback) => callback(), 0.8),
-};
 
 function sendAlertImmediate(patch: Partial<Alert>) {
 	const alert: Alert = {
@@ -26,9 +22,6 @@ function sendAlertImmediate(patch: Partial<Alert>) {
 		id: nextAlertId++,
 	};
 
-	if (alert.scope) {
-		dismissAlertsOfScope(alert.scope);
-	}
 
 	store.addAlert(alert);
 
@@ -40,13 +33,7 @@ function sendAlertImmediate(patch: Partial<Alert>) {
 }
 
 export function sendAlert(patch: Partial<Alert>) {
-	if (!patch.scope) {
 		return sendAlertImmediate(patch);
-	}
-
-	return scopedThrottles[patch.scope](() => {
-		return sendAlertImmediate(patch);
-	});
 }
 
 export async function dismissAlert(id: number) {
@@ -58,10 +45,3 @@ export async function dismissAlert(id: number) {
 	});
 }
 
-function dismissAlertsOfScope(scope: string) {
-	for (const alert of store.getState(selectAlerts)) {
-		if (alert.scope === scope) {
-			dismissAlert(alert.id);
-		}
-	}
-}

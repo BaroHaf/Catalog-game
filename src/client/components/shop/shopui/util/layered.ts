@@ -151,9 +151,6 @@ export function tryOnLayered(assetType: Enum.AvatarAssetType, assetId: number, o
 	};
 	list.push(entry);
 
-	print(
-		`[LAYERED][ADD] +${assetId} type=${accType.Name} order=${order} → size=${list.size()} (replace=${opts?.replaceSameType === true})`,
-	);
 
 	// Apply to local viewports
 	writeLayeredList(d, list);
@@ -191,8 +188,6 @@ export function takeOffLayered(assetType: Enum.AvatarAssetType, assetId: number)
 		}
 	}
 
-	print(`[LAYERED][REMOVE] -${assetId} type=${accType.Name} removed=${removed} → size=${list.size()}`);
-
 	// Apply to local viewports
 	writeLayeredList(d, list);
 	applyDescriptionToAllTargets(d, true);
@@ -205,6 +200,31 @@ export function takeOffLayered(assetType: Enum.AvatarAssetType, assetId: number)
 	remotes.server.outfitDelta.fire(payload);
 }
 
+/** Liệt kê các món layered đang mang kèm AvatarAssetType (tiện tra cứu UI) */
+export function getLayeredEquipped(): Array<{ id: number; assetType: Enum.AvatarAssetType }> {
+	const out = new Array<{ id: number; assetType: Enum.AvatarAssetType }>();
+	const d = getDesc();
+	if (!d) return out;
+
+	const accs = d.GetAccessories(false) as Array<LayeredAccessoryInfo>;
+	for (let i = 0; i < accs.size(); i++) {
+		const it = accs[i] as unknown as { IsLayered?: boolean; AssetId?: number; AccessoryType?: Enum.AccessoryType };
+		if (it.IsLayered === true && typeOf(it.AssetId) === "number" && it.AccessoryType) {
+			// map AccessoryType -> AvatarAssetType
+			let avatar: Enum.AvatarAssetType | undefined = undefined;
+			// Không dùng Map.values() cho tương thích lib
+			ACC_TYPE_BY_AVATAR.forEach((accType, avatarKey) => {
+				// accType là AccessoryType; avatarKey là AvatarAssetType.Value
+				if (accType.Value === it.AccessoryType!.Value) {
+					avatar = Enum.AvatarAssetType.GetEnumItems().find((x) => x.Value === avatarKey);
+				}
+			});
+			if (avatar) out.push({ id: it.AssetId as number, assetType: avatar });
+		}
+	}
+	return out;
+}
+
 /* =========================
    4) DEBUG
    ========================= */
@@ -214,11 +234,5 @@ export function debugDumpLayered() {
 	if (!d) {
 		warn("[LAYERED][DEBUG] No primary humanoid/description");
 		return;
-	}
-	const list = readLayeredList(d);
-	print(`[LAYERED][DUMP] count=${list.size()}`);
-	for (let i = 0; i < list.size(); i++) {
-		const it = list[i];
-		print(`  [${i}] id=${it.AssetId} type=${it.AccessoryType.Name} order=${it.Order} layered=${it.IsLayered ?? false}`);
 	}
 }

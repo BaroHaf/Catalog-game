@@ -37,3 +37,6 @@ export const selectCheckout = (state: RootState) => {
 export const selectCheckoutSolo = (state: RootState) => {
 	return state.shop.checkoutSolo;
 };
+export const selectMusicEnabled = (state: RootState) => {
+	return state.shop.mutemusic;
+};

@@ -28,8 +28,9 @@ interface AssetItem {
 	Name: string;
 	Price?: number;
 	Creator: string;
-	AssetType: Enum.AvatarAssetType;
+	AssetType?: Enum.AvatarAssetType;
 }
+
 interface DisplayItemProps {
 	visible?: boolean;
 }
@@ -44,7 +45,7 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 	const store = useStore();
 	const scrollRef = useRef<ScrollingFrame>();
 	const page = useSelector(selectPage);
-	const subpage = useSelector(selectSubpage);
+	const subpage = useSelector(selectSubpage) as { filterType: string; value?: string };
 	const keyword = useSelector(selectSearchKeyword);
 	const catalogVisible = useSelector(selectCatalogVisible);
 	const specialKey = useSelector(selectSpecialKey);
@@ -91,42 +92,46 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 		searchParams.SortType = Enum.CatalogSortType.Relevance;
 		(searchParams as unknown as { Limit?: number }).Limit = 30;
 
-		if (page === "Body") {
-			searchParams.CategoryFilter = Enum.CatalogCategoryFilter.None;
-			searchParams.IncludeOffSale = true;
-		}
-
 		let assetType: Enum.AvatarAssetType | undefined;
 
-		if (keyword !== "") {
-			assetType = getAssetTypeByPage(page);
-			if (!assetType) {
-				setIsInitialLoading(false);
-				return;
-			}
-			searchParams.AssetTypes = [assetType];
-			searchParams.SearchKeyword = keyword;
-		} else if (subpage.filterType === "assetType") {
-			assetType = (Enum.AvatarAssetType as unknown as Record<string, Enum.AvatarAssetType>)[subpage.value];
-			if (!assetType) {
-				setIsInitialLoading(false);
-				return;
-			}
-			searchParams.AssetTypes = [assetType];
-			searchParams.SearchKeyword = "";
+		// === NHÁNH ANIMATIONS ===
+		if (page.lower() === "animations") {
+			searchParams.BundleTypes = [Enum.BundleType.Animations];
+			searchParams.SortType = Enum.CatalogSortType.Relevance;
+			searchParams.SearchKeyword =
+				keyword !== "" ? keyword : subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
 		} else {
-			assetType = getAssetTypeByPage(page);
-
-			// ví dụ đặc biệt: "bangs"
-			if (subpage.filterType === "keyword" && subpage.value.lower() === "bangs") {
-				assetType = Enum.AvatarAssetType.FaceAccessory;
+			// === Các page khác dùng AssetTypes như cũ ===
+			if (keyword !== "") {
+				assetType = getAssetTypeByPage(page);
+				if (!assetType) {
+					setIsInitialLoading(false);
+					return;
+				}
+				searchParams.AssetTypes = [assetType];
+				searchParams.SearchKeyword = keyword;
+			} else if (subpage.filterType === "assetType") {
+				assetType = (Enum.AvatarAssetType as unknown as Record<string, Enum.AvatarAssetType>)[
+					subpage.value ?? ""
+				];
+				if (!assetType) {
+					setIsInitialLoading(false);
+					return;
+				}
+				searchParams.AssetTypes = [assetType];
+				searchParams.SearchKeyword = "";
+			} else {
+				assetType = getAssetTypeByPage(page);
+				if (subpage.filterType === "keyword" && (subpage.value ?? "").lower() === "bangs") {
+					assetType = Enum.AvatarAssetType.FaceAccessory;
+				}
+				if (!assetType) {
+					setIsInitialLoading(false);
+					return;
+				}
+				searchParams.AssetTypes = [assetType];
+				searchParams.SearchKeyword = subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
 			}
-			if (!assetType) {
-				setIsInitialLoading(false);
-				return;
-			}
-			searchParams.AssetTypes = [assetType];
-			searchParams.SearchKeyword = subpage.filterType === "keyword" ? subpage.value : "";
 		}
 
 		let cancelled = false;
@@ -148,16 +153,21 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 			}
 
 			const first = catalogPages.GetCurrentPage() as SearchCatalogResult[];
-			let assetItems = convertResults(first, assetType!);
 
-			if (subpage.filterType === "keyword" && subpage.value !== "") {
-				assetItems = filterKeywordItems(assetItems, subpage.value) as AssetItem[];
+			let assetItems: AssetItem[];
+			if (page.lower() === "animations") {
+				assetItems = convertAnimationBundles(first);
+			} else {
+				assetItems = convertResults(first, assetType!); // ✅ giữ nguyên hàm convertResults
+				if (subpage.filterType === "keyword" && (subpage.value ?? "") !== "") {
+					assetItems = filterKeywordItems(assetItems, subpage.value!) as AssetItem[];
+				}
 			}
 
 			if (!cancelled) {
 				setItems(assetItems);
 				setPages(catalogPages);
-				scrollRef.current && (scrollRef.current.CanvasPosition = new Vector2(0, 0));
+				if (scrollRef.current) scrollRef.current.CanvasPosition = new Vector2(0, 0);
 			}
 
 			finish();
@@ -191,8 +201,13 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 				consecutiveFailures = 0;
 
 				const newPage = pages.GetCurrentPage() as SearchCatalogResult[];
-				const inferredType = (items[0]?.AssetType as Enum.AvatarAssetType) ?? Enum.AvatarAssetType.TShirt;
-				const newItems = convertResults(newPage, inferredType);
+				let newItems: AssetItem[];
+				if (page.lower() === "animations") {
+					newItems = convertAnimationBundles(newPage);
+				} else {
+					const inferred = (items[0]?.AssetType as Enum.AvatarAssetType) ?? Enum.AvatarAssetType.TShirt;
+					newItems = convertResults(newPage, inferred); // ✅ giữ nguyên hàm convertResults
+				}
 
 				setItems((prev) => {
 					const ids = new Set(prev.map((i) => i.Id));
@@ -245,28 +260,34 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 						PaddingRight={new UDim(0, rem(1))}
 					/>
 
-					{/* Chỉ render ItemField khi hết loading */}
 					{!isInitialLoading &&
-						items.map((item, index) => (
-							<ItemField
-								key={`item-${item.Id}-${index}`}
-								id={item.Id}
-								name={item.Name}
-								price={item.Price ?? 0}
-								imageUrl={`rbxthumb://type=Asset&id=${item.Id}&w=420&h=420`}
-								creator={item.Creator}
-								assetType={item.AssetType}
-								LayoutOrder={index}
-								cellW={cellW}
-								index={index}
-								open={selectedId === item.Id}
-								onToggleOpen={() => setSelectedId((cur) => (cur === item.Id ? undefined : item.Id))}
-							/>
-						))}
+						items.map((item, index) => {
+							const thumbUrl =
+								page.lower() === "animations"
+									? `rbxthumb://type=BundleThumbnail&id=${item.Id}&w=420&h=420`
+									: `rbxthumb://type=Asset&id=${item.Id}&w=420&h=420`;
+
+							return (
+								<ItemField
+									key={`item-${item.Id}-${index}`}
+									id={item.Id}
+									name={item.Name}
+									price={item.Price ?? 0}
+									imageUrl={thumbUrl}
+									creator={item.Creator}
+									assetType={item.AssetType as Enum.AvatarAssetType}
+									bundleType={page.lower() === "animations" ? Enum.BundleType.Animations : undefined} // 🔹 thêm dòng này
+									LayoutOrder={index}
+									cellW={cellW}
+									index={index}
+									open={selectedId === item.Id}
+									onToggleOpen={() => setSelectedId((cur) => (cur === item.Id ? undefined : item.Id))}
+								/>
+							);
+						})}
 				</scrollingframe>
 			</Frame>
 
-			{/* Loader overlay */}
 			{catalogVisible && isInitialLoading && (
 				<frame BackgroundTransparency={1} Size={new UDim2(1, 0, 1, 0)}>
 					<frame
@@ -291,6 +312,29 @@ function convertResults(results: SearchCatalogResult[], assetType: Enum.AvatarAs
 		Creator: r.CreatorName ?? "Unknown",
 		AssetType: assetType,
 	}));
+}
+
+// 🔹 Hàm riêng cho Animations
+function convertAnimationBundles(results: SearchCatalogResult[]): AssetItem[] {
+	const out: AssetItem[] = [];
+	for (const r of results) {
+		const anyR = r as unknown as {
+			BundleId?: number;
+			Id?: number;
+			Name: string;
+			Price?: number;
+			CreatorName?: string;
+		};
+		const id = anyR.BundleId ?? anyR.Id;
+		if (!id) continue;
+		out.push({
+			Id: id,
+			Name: anyR.Name,
+			Price: anyR.Price,
+			Creator: anyR.CreatorName ?? "Unknown",
+		});
+	}
+	return out;
 }
 
 function shouldLoadNext(sc: ScrollingFrame) {

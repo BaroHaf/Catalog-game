@@ -1,5 +1,7 @@
 // src/client/components/shop/shopui/util/camerarotation.ts
 import { Players, ReplicatedStorage, MarketplaceService } from "@rbxts/services";
+import { sendAlert } from "client/alerts";
+import { SHOP_ALERT_MSG, SHOP_ALERT_STYLE } from "shared/constants/constant";
 import { remotes, type OutfitDelta } from "shared/remotes";
 
 /* =========================
@@ -84,6 +86,16 @@ const FIELD_EXPECTED_TYPES: Partial<Record<HDKey, Enum.AvatarAssetType[]>> = {
 	LeftLeg: [Enum.AvatarAssetType.LeftLeg],
 	RightLeg: [Enum.AvatarAssetType.RightLeg],
 };
+const ANIM_KEYS = [
+	"WalkAnimation",
+	"RunAnimation",
+	"IdleAnimation",
+	"JumpAnimation",
+	"FallAnimation",
+	"SwimAnimation",
+	"ClimbAnimation",
+] as const;
+type AnimKey = (typeof ANIM_KEYS)[number];
 
 /* =========================
    2) INTERNAL HELPERS
@@ -335,7 +347,7 @@ type DescSnapshot = Partial<Record<(typeof CLOTH_KEYS)[number], number>> &
 		// ✅ LAYERED: lưu cả danh sách layered (LayeredAccessoryInfo)
 		// Đúng: lưu về AccessoryInfo[] cho an toàn
 		LayeredAccessories?: AccessoryInfo[];
-	};
+	} & Partial<Record<AnimKey, number>>;
 
 let DescCache: DescSnapshot | undefined;
 
@@ -390,6 +402,10 @@ function snapshotFromDesc(d: HumanoidDescription): DescSnapshot {
 		}) as AccessoryInfo[];
 		snap.LayeredAccessories = layeredOnly;
 	} while (false);
+	for (const k of ANIM_KEYS) {
+		const v = (d as unknown as Record<string, number>)[k];
+		if (typeOf(v) === "number") snap[k] = v as number;
+	}
 
 	// (tuỳ chọn) debug
 	// print(`[SNAP][MAKE] layered=${snap.LayeredAccessories?.size() ?? 0}`);
@@ -476,6 +492,9 @@ function applyClothesBodyAndAccessories(toHum: Humanoid, srcDesc: HumanoidDescri
 		const k = ACCESSORY_KEYS[i] as string;
 		(d as unknown as Record<string, unknown>)[k] = (srcDesc as unknown as Record<string, unknown>)[k];
 	}
+	for (const k of ANIM_KEYS) {
+		(d as unknown as Record<string, number>)[k] = (srcDesc as unknown as Record<string, number>)[k];
+	}
 
 	// ✅ NEW: COPY LAYERED ACCESSORIES (rất quan trọng)
 	const layered = srcDesc.GetAccessories(true);
@@ -536,6 +555,10 @@ function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot, hard = false) 
 			return a.IsLayered === true;
 		}) as AccessoryInfo[];
 		d.SetAccessories(onlyLayered, false); // giữ nguyên rigid
+	}
+	for (const k of ANIM_KEYS) {
+		const v = snap[k];
+		if (typeOf(v) === "number") (d as unknown as Record<string, number>)[k] = v as number;
 	}
 
 	dedupeAgainstBodyAndClothes(d);
@@ -1215,19 +1238,49 @@ function collectAssetIdsFromSnapshot(snap: DescSnapshot): number[] {
 }
 
 export function getCurrentHumanoidAssets(): SimpleAssetInfo[] {
-	const base = getPrimaryHumanoid();
-	if (!base) return [];
+	const hum = getPrimaryHumanoid();
+	if (!hum) return [];
 
-	const ids = DescCache
-		? collectAssetIdsFromSnapshot(DescCache)
-		: collectAssetIdsFromDesc(base.GetAppliedDescription());
-	const result = new Array<SimpleAssetInfo>();
-	for (let i = 0; i < ids.size(); i++) {
-		const id = ids[i];
-		const name = getAssetName(id);
-		result.push({ id, name });
+	const d = hum.GetAppliedDescription();
+
+	const out = new Array<SimpleAssetInfo>();
+	const seen = new Map<number, true>();
+
+	const push = (id: number, nameOverride?: string) => {
+		if (id > 0 && !seen.has(id)) {
+			seen.set(id, true as true);
+			out.push({ id, name: nameOverride ?? getAssetName(id) });
+		}
+	};
+
+	// 1) Classic + Accessories CSV + BodyPart (đã có sẵn)
+	const rigidIds = collectAssetIdsFromDesc(d);
+	for (const id of rigidIds) push(id);
+
+	// 2) Layered (Jacket/Sweater/Shorts/Skirt/Shoes)
+	const layeredIds = collectLayeredIdsFromDesc(d);
+	for (const id of layeredIds) push(id);
+
+	// 3) Animation Slots (Walk/Run/Idle/Jump/Fall/Swim/Climb)
+	const slots: Array<[string, number]> = [
+		["Walk", d.WalkAnimation],
+		["Run", d.RunAnimation],
+		["Idle", d.IdleAnimation],
+		["Jump", d.JumpAnimation],
+		["Fall", d.FallAnimation],
+		["Swim", d.SwimAnimation],
+		["Climb", d.ClimbAnimation],
+	];
+
+	for (const [slot, id] of slots) {
+		if (typeOf(id) === "number" && id > 0) {
+			// Đặt tên có prefix slot để phân biệt trên UI
+			const base = getAssetName(id);
+			push(id, `[${slot}] ${base}`);
+		}
 	}
-	return result;
+
+	return out;
 }
 
 const FIELD_TO_ASSETTYPE: Partial<Record<string, Enum.AvatarAssetType>> = {
@@ -1256,22 +1309,22 @@ export function getWornAssetTypeForId(assetId: number): Enum.AvatarAssetType | u
 	const hum = getPrimaryHumanoid();
 	if (!hum || assetId <= 0) return undefined;
 
+	// Ưu tiên đọc từ cache nếu có để tránh giật
 	const d = DescCache ? DescCache : snapshotFromDesc(hum.GetAppliedDescription());
 
+	// 1) Singles: clothes/body
 	for (let i = 0; i < CLOTH_KEYS.size(); i++) {
 		const k = CLOTH_KEYS[i] as string;
 		const v = (d as unknown as Record<string, unknown>)[k];
-		if (typeOf(v) === "number" && (v as number) === assetId) {
-			return FIELD_TO_ASSETTYPE[k];
-		}
+		if (typeOf(v) === "number" && (v as number) === assetId) return FIELD_TO_ASSETTYPE[k];
 	}
 	for (let i = 0; i < BODY_KEYS.size(); i++) {
 		const k = BODY_KEYS[i] as string;
 		const v = (d as unknown as Record<string, unknown>)[k];
-		if (typeOf(v) === "number" && (v as number) === assetId) {
-			return FIELD_TO_ASSETTYPE[k];
-		}
+		if (typeOf(v) === "number" && (v as number) === assetId) return FIELD_TO_ASSETTYPE[k];
 	}
+
+	// 2) CSV accessories
 	for (let i = 0; i < ACCESSORY_KEYS.size(); i++) {
 		const k = ACCESSORY_KEYS[i] as string;
 		const v = (d as unknown as Record<string, unknown>)[k];
@@ -1282,6 +1335,13 @@ export function getWornAssetTypeForId(assetId: number): Enum.AvatarAssetType | u
 			}
 		}
 	}
+
+	// 3) ✅ Layered (đọc trực tiếp từ HumanoidDescription)
+	const layered = getLayeredEquippedLocal(); // [{ id, assetType }]
+	for (const it of layered) {
+		if (it.id === assetId) return it.assetType;
+	}
+
 	return undefined;
 }
 
@@ -1304,9 +1364,17 @@ function getProfileDescriptionOf(userId: number): HumanoidDescription {
 
 	error("[avatar] Failed to get profile HumanoidDescription");
 }
+export function resetcharacter(hard = true) {
+	const lp = Players.LocalPlayer!;
+	const userId = lp.UserId;
 
+	// 1) Lấy desc của PROFILE (không phải bộ đang try-on trong viewport)
+	const desc = getProfileDescriptionOf(userId);
+
+	// 2) Preview lên tất cả viewport (đồng thời cập nhật cache)
+	broadcastApplyFrom(desc, hard);
+}
 // Preview tất cả viewport + gửi server wearOutfit(name, assets, hard, colors)
-// Preview tất cả viewport + gửi server wearOutfit(name, assets, hard, colors, scales?)
 export function resetToProfileOutfit(hard = true) {
 	const lp = Players.LocalPlayer!;
 	const userId = lp.UserId;
@@ -1340,8 +1408,22 @@ export function resetToProfileOutfit(hard = true) {
 	// 5) Asset IDs từ desc
 	const assets = collectAssetIdsFromDesc(desc);
 
-	// 6) Gửi server: colors + scales đều optional, server sẽ clamp & apply nếu có
+	for (const id of assets) {
+		const [ok, infoRaw] = pcall(() => MarketplaceService.GetProductInfo(id));
+		if (!ok || typeOf(infoRaw) !== "table") continue;
+		const info = infoRaw as unknown as { Name?: string; AssetTypeId?: number };
+		const typeName = Enum.AssetType.GetEnumItems().find((x) => x.Value === (info.AssetTypeId ?? -1))?.Name;
+
+		print(`[Reset][Client] send id=${id} type=${typeName} name=${info.Name}`);
+	}
+
 	remotes.server.wearOutfit.fire("[PROFILE]", assets, hard, colors, scales);
+
+	// 6) Gửi server: colors + scales đều optional, server sẽ clamp & apply nếu có
+	sendAlert({
+		...SHOP_ALERT_STYLE.resetoutfit,
+		message: SHOP_ALERT_MSG.resetoutfit,
+	});
 }
 
 /* =========================
@@ -1470,4 +1552,42 @@ export function stopEmote(fadeOut = 0.15) {
 			if (tr && tr.IsPlaying) tr.Stop(fadeOut);
 		}
 	});
+}
+function collectLayeredIdsFromDesc(d: HumanoidDescription): number[] {
+	const out = new Array<number>();
+	const accs = d.GetAccessories(true) as Array<AccessoryInfo>;
+	for (const a of accs) {
+		const any = a as unknown as { IsLayered?: boolean; AssetId?: number };
+		if (any.IsLayered === true && typeOf(any.AssetId) === "number" && (any.AssetId as number) > 0) {
+			out.push(any.AssetId as number);
+		}
+	}
+	return out;
+}
+// Map AccessoryType -> AvatarAssetType (chỉ dùng nội bộ để nhận diện loại layered)
+// ---- LAYERED LOCAL HELPERS (DEFINE ONCE) ----
+const AVATAR_BY_ACC_LOCAL = new Map<number, Enum.AvatarAssetType>([
+	[Enum.AccessoryType.Jacket.Value, Enum.AvatarAssetType.JacketAccessory],
+	[Enum.AccessoryType.Sweater.Value, Enum.AvatarAssetType.SweaterAccessory],
+	[Enum.AccessoryType.Shorts.Value, Enum.AvatarAssetType.ShortsAccessory],
+	[Enum.AccessoryType.DressSkirt.Value, Enum.AvatarAssetType.DressSkirtAccessory],
+	[Enum.AccessoryType.LeftShoe.Value, Enum.AvatarAssetType.LeftShoeAccessory],
+	[Enum.AccessoryType.RightShoe.Value, Enum.AvatarAssetType.RightShoeAccessory],
+]);
+
+function getLayeredEquippedLocal(): Array<{ id: number; assetType: Enum.AvatarAssetType }> {
+	const hum = getPrimaryHumanoid();
+	if (!hum) return [];
+	const d = hum.GetAppliedDescription();
+	const accs = d.GetAccessories(false) as Array<LayeredAccessoryInfo>;
+
+	const out = new Array<{ id: number; assetType: Enum.AvatarAssetType }>();
+	for (let i = 0; i < accs.size(); i++) {
+		const it = accs[i] as unknown as { IsLayered?: boolean; AssetId?: number; AccessoryType?: Enum.AccessoryType };
+		if (it.IsLayered === true && typeOf(it.AssetId) === "number" && it.AccessoryType) {
+			const avatar = AVATAR_BY_ACC_LOCAL.get(it.AccessoryType.Value);
+			if (avatar) out.push({ id: it.AssetId as number, assetType: avatar });
+		}
+	}
+	return out;
 }

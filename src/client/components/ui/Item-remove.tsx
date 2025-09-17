@@ -8,11 +8,28 @@ import {
   getWornAssetTypeForId,
 } from "client/components/shop/shopui/util/camerarotation";
 import { useMotion } from "@rbxts/pretty-react-hooks";
+import { MarketplaceService } from "@rbxts/services";
 
 interface Props {
   asset: SimpleAssetInfo;
   assetType?: Enum.AvatarAssetType;
   index?: number; // dùng cho stagger
+}
+
+/** Lấy tên hiển thị an toàn cho asset */
+function getAssetDisplayName(a: SimpleAssetInfo): string {
+  // ưu tiên tên từ props (đã có sẵn trong SimpleAssetInfo)
+  if (typeOf(a.name) === "string" && a.name.size() > 0) return a.name;
+
+  // fallback: đọc từ MarketplaceService
+  const [ok, infoRaw] = pcall(() => MarketplaceService.GetProductInfo(a.id));
+  if (ok && typeOf(infoRaw) === "table") {
+    const t = infoRaw as unknown as { Name?: string };
+    if (typeOf(t.Name) === "string" && (t.Name as string).size() > 0) return t.Name as string;
+  }
+
+  // cuối cùng: hiển thị theo id
+  return `Item ${a.id}`;
 }
 
 export function Itemremove({ asset, assetType, index = 0 }: Props) {
@@ -21,6 +38,8 @@ export function Itemremove({ asset, assetType, index = 0 }: Props) {
 
   const effectiveType =
     assetType ?? getWornAssetTypeForId(asset.id) ?? Enum.AvatarAssetType.Hat;
+
+  const displayName = getAssetDisplayName(asset);
 
   // ==== Motion: từ TRÁI → PHẢI (animate frame con, không phải slot) ====
   const startXOffset = -rem(2.2);
@@ -90,6 +109,7 @@ export function Itemremove({ asset, assetType, index = 0 }: Props) {
             assetType={effectiveType}
             assetId={asset.id}
             cellW={rem(9)}
+            assetName={displayName} // 👈 truyền tên vào DisplayOptions
           />
         </frame>
       </Frame>

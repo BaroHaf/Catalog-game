@@ -1,8 +1,9 @@
+// src/client/components/shop/saveui/utils/build-desc-from-assets.ts
 import { Players, MarketplaceService } from "@rbxts/services";
 import { getHDKeyForAssetType } from "../../shopui/util/camerarotation";
 import { Outfit, BodyColorsData, RGB, ScalesData } from "shared/remotes";
 
-/* ========= Helpers: đọc AssetTypeId ========= */
+/* ========= Helpers ========= */
 const typeCache = new Map<number, number>(); // assetId -> AssetTypeId
 
 function readAssetTypeId(id: number): number | undefined {
@@ -17,7 +18,6 @@ function readAssetTypeId(id: number): number | undefined {
 	typeCache.set(id, info.AssetTypeId);
 	return info.AssetTypeId;
 }
-
 function isValidAvatarAsset(id: number): boolean {
 	const typeId = readAssetTypeId(id);
 	if (!typeId) return false;
@@ -68,7 +68,7 @@ function applyScalesFromPreset(to: HumanoidDescription, scales?: ScalesData, fal
 	}
 }
 
-/* ========= Reset classic & rigid CSV ========= */
+/* ========= Reset classic ========= */
 function resetClassicSlots(desc: HumanoidDescription) {
 	desc.Shirt = 0;
 	desc.Pants = 0;
@@ -119,34 +119,25 @@ function setCsv(desc: HumanoidDescription, key: CsvAccKey, values: number[]) {
 	const csv = uniq.join(",");
 	switch (key) {
 		case "HatAccessory":
-			desc.HatAccessory = csv;
-			break;
+			desc.HatAccessory = csv; break;
 		case "HairAccessory":
-			desc.HairAccessory = csv;
-			break;
+			desc.HairAccessory = csv; break;
 		case "FaceAccessory":
-			desc.FaceAccessory = csv;
-			break;
+			desc.FaceAccessory = csv; break;
 		case "NeckAccessory":
-			desc.NeckAccessory = csv;
-			break;
+			desc.NeckAccessory = csv; break;
 		case "ShouldersAccessory":
-			desc.ShouldersAccessory = csv;
-			break;
+			desc.ShouldersAccessory = csv; break;
 		case "FrontAccessory":
-			desc.FrontAccessory = csv;
-			break;
+			desc.FrontAccessory = csv; break;
 		case "BackAccessory":
-			desc.BackAccessory = csv;
-			break;
+			desc.BackAccessory = csv; break;
 		case "WaistAccessory":
-			desc.WaistAccessory = csv;
-			break;
+			desc.WaistAccessory = csv; break;
 	}
 }
 
-/* ========= Layered detection & mapping ========= */
-// Những loại LAYERED (AvatarAssetType) → true
+/* ========= Layered detection ========= */
 function isLayeredTypeId(typeId: number): boolean {
 	const L = Enum.AvatarAssetType;
 	return (
@@ -157,15 +148,13 @@ function isLayeredTypeId(typeId: number): boolean {
 		typeId === L.PantsAccessory.Value ||
 		typeId === L.ShortsAccessory.Value ||
 		typeId === L.DressSkirtAccessory.Value ||
-		// nếu bạn dùng shoe accessories:
+		// tuỳ build có shoe hay không
 		((L as unknown as Record<string, EnumItem>).LeftShoeAccessory &&
 			typeId === (L as unknown as Record<string, EnumItem>).LeftShoeAccessory.Value) ||
 		((L as unknown as Record<string, EnumItem>).RightShoeAccessory &&
 			typeId === (L as unknown as Record<string, EnumItem>).RightShoeAccessory.Value)
 	);
 }
-
-// Map AvatarAssetType → AccessoryType (để SetAccessories không bị “invalid accessory type”)
 function toAccessoryType(typeId: number): Enum.AccessoryType | undefined {
 	const A = Enum.AvatarAssetType;
 	const T = Enum.AccessoryType;
@@ -178,7 +167,7 @@ function toAccessoryType(typeId: number): Enum.AccessoryType | undefined {
 	if (typeId === A.ShortsAccessory.Value) return T.Shorts;
 	if (typeId === A.DressSkirtAccessory.Value) return T.DressSkirt;
 
-	// Shoes (có thể không tồn tại trên build cũ)
+	// Shoes (nếu có enum trong build của bạn)
 	const AAny = A as unknown as Record<string, EnumItem>;
 	const TAny = T as unknown as Record<string, EnumItem>;
 	if (AAny.LeftShoeAccessory && TAny.LeftShoe && typeId === AAny.LeftShoeAccessory.Value)
@@ -189,7 +178,7 @@ function toAccessoryType(typeId: number): Enum.AccessoryType | undefined {
 	return undefined;
 }
 
-/* ========= Build description ========= */
+/* ========= Build ========= */
 export function buildDescriptionFromOutfit(of: Outfit): HumanoidDescription {
 	const lp = Players.LocalPlayer!;
 	const base =
@@ -202,7 +191,7 @@ export function buildDescriptionFromOutfit(of: Outfit): HumanoidDescription {
 	applyScalesFromPreset(desc, (of as { scales?: ScalesData }).scales, base);
 	resetClassicSlots(desc);
 
-	// bucket rigid CSV vs layered list
+	// buckets
 	const csvBuckets: Record<CsvAccKey, number[]> = {
 		HatAccessory: [],
 		HairAccessory: [],
@@ -215,57 +204,38 @@ export function buildDescriptionFromOutfit(of: Outfit): HumanoidDescription {
 	};
 	const layeredList: { AssetId: number; AccessoryType: Enum.AccessoryType; Order?: number }[] = [];
 
-	// Nếu môi trường có Eyebrow/Eyelash Accessory nhưng không có slot riêng → dồn về FaceAccessory CSV
-	const rigidFaceFallbackTypes = new Set<number>();
-	const AAny = Enum.AvatarAssetType as unknown as Record<string, EnumItem>;
-	if (AAny.EyebrowAccessory) rigidFaceFallbackTypes.add(AAny.EyebrowAccessory.Value);
-	if (AAny.EyelashAccessory) rigidFaceFallbackTypes.add(AAny.EyelashAccessory.Value);
-
 	let order = 50;
 
 	for (const id of of.assets ?? []) {
 		if (!id || id <= 0 || !isValidAvatarAsset(id)) continue;
-
 		const typeId = readAssetTypeId(id)!;
 
-		// 1) Layered clothing → dồn vào danh sách cho SetAccessories
+		// 1) layered
 		if (isLayeredTypeId(typeId)) {
 			const at = toAccessoryType(typeId);
-			if (at !== undefined) {
-				layeredList.push({ AssetId: id, AccessoryType: at, Order: order++ });
-			}
+			if (at !== undefined) layeredList.push({ AssetId: id, AccessoryType: at, Order: order++ });
 			continue;
 		}
 
-		// 2) Classic/rigid → map sang property/CSV
+		// 2) bodyparts (chỉ set các field chắc chắn có trong rbxts types của bạn)
+		if (typeId === Enum.AssetType.Head.Value) { desc.Head = id; continue; }
+		if (typeId === Enum.AssetType.Torso.Value) { desc.Torso = id; continue; }
+		if (typeId === Enum.AssetType.LeftArm.Value) { desc.LeftArm = id; continue; }
+		if (typeId === Enum.AssetType.RightArm.Value) { desc.RightArm = id; continue; }
+		if (typeId === Enum.AssetType.LeftLeg.Value) { desc.LeftLeg = id; continue; }
+		if (typeId === Enum.AssetType.RightLeg.Value) { desc.RightLeg = id; continue; }
+
+		// 3) classic + rigid
 		const assetType = Enum.AvatarAssetType.GetEnumItems().find((t) => t.Value === typeId);
 		if (!assetType) continue;
-
 		const key = getHDKeyForAssetType(assetType);
-		if (!key) {
-			// một số rigid mới không có key → dồn về FaceAccessory nếu face-related
-			if (rigidFaceFallbackTypes.has(typeId)) {
-				csvBuckets.FaceAccessory.push(id);
-			}
-			continue;
-		}
+		if (!key) continue;
 
 		switch (key) {
-			// classic clothes
-			case "Shirt":
-				desc.Shirt = id;
-				break;
-			case "Pants":
-				desc.Pants = id;
-				break;
-			case "GraphicTShirt":
-				desc.GraphicTShirt = id;
-				break;
-			case "Face":
-				desc.Face = id;
-				break;
-
-			// rigid CSV
+			case "Shirt": desc.Shirt = id; break;
+			case "Pants": desc.Pants = id; break;
+			case "GraphicTShirt": desc.GraphicTShirt = id; break;
+			case "Face": desc.Face = id; break;
 			case "HatAccessory":
 			case "HairAccessory":
 			case "FaceAccessory":
@@ -274,20 +244,14 @@ export function buildDescriptionFromOutfit(of: Outfit): HumanoidDescription {
 			case "FrontAccessory":
 			case "BackAccessory":
 			case "WaistAccessory":
-				csvBuckets[key].push(id);
-				break;
-
-			default:
-				// không map được → bỏ qua (tuyệt đối không đưa rigid vào SetAccessories)
-				break;
+				csvBuckets[key].push(id); break;
 		}
 	}
 
-	// Ghi CSV rigid
+	// CSV apply
 	for (const k of CSV_KEYS) setCsv(desc, k, csvBuckets[k]);
 
-	// Áp layered bằng SetAccessories: CHỈ layered + có AccessoryType hợp lệ
-	// Thay cả block "payload" ở cuối bằng 1 dòng này:
+	// layered apply (includeRigidAccessories = false để tránh lẫn rigid)
 	if (layeredList.size() > 0) {
 		desc.SetAccessories(layeredList as unknown[], false);
 	}

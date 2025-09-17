@@ -21,8 +21,9 @@ import { Players } from "@rbxts/services";
 import { Closebutsaveui } from "./closebut";
 import { PublicIdBar } from "./publicidbar";
 import { SquareLoader } from "client/components/ui/loading";
-
-const MIN_LOADING = 1;
+import { sendAlert } from "client/alerts";
+import { SHOP_ALERT_MSG, SHOP_ALERT_STYLE } from "shared/constants/constant";
+const MIN_LOADING = 0.5;
 
 // helper đếm key (thay cho Object.values)
 function countKeys<T>(map: Record<string, T>): number {
@@ -250,6 +251,10 @@ export function SaveUI(): JSX.Element {
 		print(
 			`[SaveUI] wear request → "${of.name}" | assets=${of.assets.size()} | hard=true | colors=${of.colors !== undefined}`,
 		);
+		sendAlert({
+			...SHOP_ALERT_STYLE.wearoutfit,
+			message: SHOP_ALERT_MSG.wearoutfit,
+		});
 	}
 
 	function handlePublishToggle(k: string) {
@@ -284,6 +289,10 @@ export function SaveUI(): JSX.Element {
 		const of = save.outfits[k];
 		if (!of) return;
 		remotes.server.deleteOutfit.fire(of.name);
+		sendAlert({
+			...SHOP_ALERT_STYLE.remove,
+			message: SHOP_ALERT_MSG.remove,
+		});
 	}
 
 	/* ======================= D) Render ======================= */

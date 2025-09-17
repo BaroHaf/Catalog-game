@@ -4,7 +4,6 @@ import React, { useEffect, useMemo } from "@rbxts/react";
 import { useSelectorCreator } from "@rbxts/react-reflex";
 import { dismissAlert } from "client/alerts";
 import { Frame } from "client/components/ui/frame";
-import { Image } from "client/components/ui/image";
 import { Outline } from "client/components/ui/outline";
 import { ReactiveButton } from "client/components/ui/reactive-button";
 import { Shadow } from "client/components/ui/shadow";
@@ -13,13 +12,11 @@ import { fonts } from "client/constants/fonts";
 import { springs } from "client/constants/springs";
 import { useMotion, useRem } from "client/hooks";
 import { Alert, selectAlertIndex } from "client/store/alert";
-import { images } from "shared/assets";
 import { palette } from "shared/constants/palette";
 import { brightenIfDark, darken } from "shared/utils/color-utils";
 import { mapStrict } from "shared/utils/math-utils";
-
-import { AlertTimer } from "./alert-timer";
-
+import { useMountEffect } from "@rbxts/pretty-react-hooks";
+import { playSound, sounds } from "shared/assets/sounds";
 interface AlertProps {
 	readonly alert: Alert;
 	readonly index: number;
@@ -79,7 +76,9 @@ export function Alert({ alert, index }: AlertProps) {
 			dismissAlert(alert.id);
 		}
 	}, [visibleIndex]);
-
+	useMountEffect(() => {
+		playSound(sounds.notifysound);
+	});
 	return (
 		<ReactiveButton
 			onClick={() => dismissAlert(alert.id)}
@@ -149,22 +148,6 @@ export function Alert({ alert, index }: AlertProps) {
 				change={{
 					TextBounds: (rbx) => updateSize(rbx.TextBounds.X),
 				}}
-			/>
-
-			<Image
-				image={images.ui.alert_dismiss}
-				imageColor={brightenIfDark(alert.colorSecondary || alert.colorMessage || alert.color)}
-				imageTransparency={lerpBinding(transition, 1, 0)}
-				anchorPoint={new Vector2(1, 0.5)}
-				size={new UDim2(0, rem(1), 0, rem(1))}
-				position={new UDim2(1, rem(-ALERT_PADDING), 0.5, 0)}
-			/>
-
-			<AlertTimer
-				duration={alert.duration}
-				color={alert.color}
-				colorSecondary={alert.colorSecondary}
-				transparency={lerpBinding(transition, 1, 0)}
 			/>
 		</ReactiveButton>
 	);

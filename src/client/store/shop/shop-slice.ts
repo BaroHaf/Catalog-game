@@ -20,6 +20,7 @@ export interface ShopState {
   readonly specialKey?: string;
   readonly checkout: boolean;
   readonly checkoutSolo: boolean;
+  readonly mutemusic: boolean;
 }
 
 export const NONE_FILTER: SubPageFilterType = "";
@@ -40,6 +41,7 @@ const initialState: ShopState = {
   specialKey: undefined,
   checkout: false,
   checkoutSolo: false,
+  mutemusic: true,
 };
 
 export const shopSlice = createProducer(initialState, {
@@ -86,4 +88,6 @@ export const shopSlice = createProducer(initialState, {
   }),
 
   setCheckoutSolo: (state, solo: boolean): ShopState => ({ ...state, checkoutSolo: solo }),
+  setMenuMusic: (state, mute: boolean): ShopState => ({ ...state, mutemusic: mute }),
+
 });

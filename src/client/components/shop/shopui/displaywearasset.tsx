@@ -3,8 +3,7 @@ import { useRem } from "client/hooks";
 import { Itemremove } from "client/components/ui/Item-remove";
 import {
 	getCurrentHumanoidAssets,
-	onAssetsChanged,
-	getWornAssetTypeForId, // 👈 thay thế resolveAssetTypeOf
+	onAssetsChanged, // 👈 thay thế resolveAssetTypeOf
 	type SimpleAssetInfo,
 } from "./util/camerarotation";
 

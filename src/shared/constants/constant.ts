@@ -1,5 +1,5 @@
 // src/shared/constants/constant.ts
-
+import { palette } from "./palette";
 export interface Category {
 	name: string;
 	assetType?: Enum.AvatarAssetType;
@@ -13,6 +13,34 @@ export interface SubCategory {
 	/** với assetType: có thể là key string ("Jacket") hoặc enum value (Enum.AvatarAssetType.Jacket) */
 	filterValue?: string | Enum.AvatarAssetType;
 }
+// ====== SHOP ALERT PRESETS ======
+/** Sử dụng Catppuccin palette cho alert */
+export const SHOP_ALERT_STYLE = {
+	wear: { emoji: "✨", color: palette.green, colorSecondary: palette.teal },
+	takeOff: { emoji: "🧺", color: palette.red, colorSecondary: palette.maroon },
+	addCart: { emoji: "🛒", color: palette.yellow, colorSecondary: palette.peach },
+	inCart: { emoji: "⚠️", color: palette.flamingo, colorSecondary: palette.rosewater },
+	cartFull: { emoji: "🚫", color: palette.red, colorSecondary: palette.pink },
+	wearoutfit: { emoji: "✨", color: palette.green, colorSecondary: palette.rosewater },
+	resetoutfit: { emoji: "✨", color: palette.green },
+	remove: { emoji: "🚫", color: palette.red },
+	saveoutfit: { emoji: "✅", color: palette.green },
+};
+
+/** Messages (dùng trực tiếp cho sendAlert) */
+export const SHOP_ALERT_MSG = {
+	wear: (itemName: string) => `Complete wear <font color="#ffffff">${itemName}</font>.`,
+	takeOff: (itemName: string) => `Removed <font color="#ffffff">${itemName}</font> from your outfit.`,
+	addCart: (itemName: string) => `Added <font color="#ffffff">${itemName}</font> to cart.`,
+	inCart: (itemName: string) =>
+		`<font color="#F59E0B">Already in cart</font> — <font color="#ffffff">${itemName}</font>.`,
+	cartFull: (max: number) =>
+		`<font color="#EF4444">Cart is full</font> (max <font color="#ffffff">${tostring(max)}</font> items).`,
+	wearoutfit: `Complete wear <font color="#ffffff">outfits</font>.`,
+	resetoutfit: `Complete reset <font color="#ffffff">outfits</font>.`,
+	remove: `Complete remove <font color="#ffffff">outfits</font>.`,
+	saveoutfit: `Complete save <font color="#ffffff">outfits</font>.`,
+};
 
 export const PARTS = [
 	{ key: "All", label: "All" },
@@ -109,4 +137,6 @@ export const CATEGORIES: Category[] = [
 	/* ===== Emotes only (giữ lại) ===== */
 	{ name: "Emotes", assetType: Enum.AvatarAssetType.EmoteAnimation },
 	{ name: "Featured", assetType: Enum.AvatarAssetType.ShoulderAccessory },
+	/* ===== Animations ===== */
+	{ name: "Animations", assetType: Enum.AvatarAssetType.Face },
 ];

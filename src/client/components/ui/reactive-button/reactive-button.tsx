@@ -7,6 +7,7 @@ import { Button } from "../button";
 import { Frame } from "../frame";
 import { useButtonAnimation } from "./use-button-animation";
 import { useButtonState } from "./use-button-state";
+import { playButtonDown } from "shared/assets/sounds";
 
 interface ReactiveButtonProps extends React.PropsWithChildren {
 	onClick?: () => void;
@@ -89,6 +90,7 @@ export function ReactiveButton({
 				if (!enabled) return;
 				buttonEvents.onMouseDown();
 				onMouseDown?.();
+				playButtonDown();
 			}}
 			onMouseUp={() => {
 				if (!enabled) return;

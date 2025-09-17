@@ -11,8 +11,6 @@ interface Props {
 
 export function ResetBut({ visible = true }: Props) {
 	const rem = useRem();
-	const store = useStore();
-
 	return (
 		<ReactiveButton
 			size={new UDim2(1, 0, 0, rem(5))}

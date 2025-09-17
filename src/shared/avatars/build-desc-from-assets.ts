@@ -1,9 +1,11 @@
-// CHỈ server file này, đừng sửa file client buildDescriptionFromOutfit của bạn
+// shared/avatars/build-desc-from-assets.ts (SERVER)
 import { MarketplaceService } from "@rbxts/services";
 
 type ProductInfo = { AssetTypeId?: number };
 
 const L = Enum.AvatarAssetType;
+
+// layered check
 const isLayered = (typeId: number) =>
 	typeId === L.JacketAccessory.Value ||
 	typeId === L.ShirtAccessory.Value ||
@@ -11,7 +13,11 @@ const isLayered = (typeId: number) =>
 	typeId === L.TShirtAccessory.Value ||
 	typeId === L.PantsAccessory.Value ||
 	typeId === L.ShortsAccessory.Value ||
-	typeId === L.DressSkirtAccessory.Value;
+	typeId === L.DressSkirtAccessory.Value ||
+	((L as unknown as Record<string, EnumItem>).LeftShoeAccessory &&
+		typeId === (L as unknown as Record<string, EnumItem>).LeftShoeAccessory.Value) ||
+	((L as unknown as Record<string, EnumItem>).RightShoeAccessory &&
+		typeId === (L as unknown as Record<string, EnumItem>).RightShoeAccessory.Value);
 
 function toAccessoryType(typeId: number): Enum.AccessoryType | undefined {
 	const T = Enum.AccessoryType;
@@ -22,6 +28,15 @@ function toAccessoryType(typeId: number): Enum.AccessoryType | undefined {
 	if (typeId === L.PantsAccessory.Value) return T.Pants;
 	if (typeId === L.ShortsAccessory.Value) return T.Shorts;
 	if (typeId === L.DressSkirtAccessory.Value) return T.DressSkirt;
+
+	// shoes (nếu enum có)
+	const AAny = L as unknown as Record<string, EnumItem>;
+	const TAny = T as unknown as Record<string, EnumItem>;
+	if (AAny.LeftShoeAccessory && TAny.LeftShoe && typeId === AAny.LeftShoeAccessory.Value)
+		return TAny.LeftShoe as Enum.AccessoryType;
+	if (AAny.RightShoeAccessory && TAny.RightShoe && typeId === AAny.RightShoeAccessory.Value)
+		return TAny.RightShoe as Enum.AccessoryType;
+
 	return undefined;
 }
 
@@ -30,9 +45,14 @@ export function buildDescriptionFromAssetsServer(assetIds: number[]): HumanoidDe
 
 	// rigid CSV buckets
 	const rigid = {
-		HatAccessory: [] as number[], HairAccessory: [] as number[], FaceAccessory: [] as number[],
-		NeckAccessory: [] as number[], ShouldersAccessory: [] as number[], FrontAccessory: [] as number[],
-		BackAccessory: [] as number[], WaistAccessory: [] as number[],
+		HatAccessory: [] as number[],
+		HairAccessory: [] as number[],
+		FaceAccessory: [] as number[],
+		NeckAccessory: [] as number[],
+		ShouldersAccessory: [] as number[],
+		FrontAccessory: [] as number[],
+		BackAccessory: [] as number[],
+		WaistAccessory: [] as number[],
 	};
 
 	const layered: AccessoryInfo[] = [];
@@ -42,19 +62,27 @@ export function buildDescriptionFromAssetsServer(assetIds: number[]): HumanoidDe
 		if (typeOf(id) !== "number" || id <= 0) continue;
 
 		let typeId = -1;
-		const ok = pcall(() => {
+		const [ok, err] = pcall(() => {
 			const raw = MarketplaceService.GetProductInfo(id as number) as unknown as ProductInfo;
 			typeId = raw.AssetTypeId ?? -1;
 		});
 		if (!ok || typeId < 0) continue;
 
-		// classic clothing
+		/* ==== 1) Classic clothing ==== */
 		if (typeId === Enum.AssetType.Shirt.Value) { desc.Shirt = id; continue; }
 		if (typeId === Enum.AssetType.Pants.Value) { desc.Pants = id; continue; }
 		if (typeId === Enum.AssetType.TShirt.Value) { desc.GraphicTShirt = id; continue; }
 		if (typeId === Enum.AssetType.Face.Value) { desc.Face = id; continue; }
 
-		// rigid accessories → CSV
+		/* ==== 2) Body parts ==== */
+		if (typeId === Enum.AssetType.Head.Value) { desc.Head = id; continue; }
+		if (typeId === Enum.AssetType.Torso.Value) { desc.Torso = id; continue; }
+		if (typeId === Enum.AssetType.LeftArm.Value) { desc.LeftArm = id; continue; }
+		if (typeId === Enum.AssetType.RightArm.Value) { desc.RightArm = id; continue; }
+		if (typeId === Enum.AssetType.LeftLeg.Value) { desc.LeftLeg = id; continue; }
+		if (typeId === Enum.AssetType.RightLeg.Value) { desc.RightLeg = id; continue; }
+
+		/* ==== 3) Rigid accessories (CSV) ==== */
 		if (typeId === Enum.AssetType.Hat.Value) { rigid.HatAccessory.push(id); continue; }
 		if (typeId === Enum.AssetType.HairAccessory.Value) { rigid.HairAccessory.push(id); continue; }
 		if (typeId === Enum.AssetType.FaceAccessory.Value) { rigid.FaceAccessory.push(id); continue; }
@@ -64,13 +92,14 @@ export function buildDescriptionFromAssetsServer(assetIds: number[]): HumanoidDe
 		if (typeId === Enum.AssetType.BackAccessory.Value) { rigid.BackAccessory.push(id); continue; }
 		if (typeId === Enum.AssetType.WaistAccessory.Value) { rigid.WaistAccessory.push(id); continue; }
 
-		// layered clothing → SetAccessories
+		/* ==== 4) Layered ==== */
 		if (isLayered(typeId)) {
 			const at = toAccessoryType(typeId);
 			if (at) layered.push({ AssetId: id, AccessoryType: at, Order: order++, IsLayered: true });
 		}
 	}
 
+	// apply CSV
 	const join = (arr: number[]) => (arr.size() > 0 ? arr.join(",") : "");
 	desc.HatAccessory = join(rigid.HatAccessory);
 	desc.HairAccessory = join(rigid.HairAccessory);
@@ -81,9 +110,10 @@ export function buildDescriptionFromAssetsServer(assetIds: number[]): HumanoidDe
 	desc.BackAccessory = join(rigid.BackAccessory);
 	desc.WaistAccessory = join(rigid.WaistAccessory);
 
+	// apply layered
 	if (layered.size() > 0) {
-		// includeRigidAccessories = false (chỉ layered)
-		desc.SetAccessories(layered, false);
+		desc.SetAccessories(layered, false); // chỉ layered
 	}
+
 	return desc;
 }
