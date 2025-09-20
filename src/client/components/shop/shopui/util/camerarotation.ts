@@ -31,6 +31,7 @@ export type ViewportOpts = {
 	focusYOffsetRatio?: number;
 	lockFacing?: boolean;
 };
+let InitialIdleAnimId: string | undefined;
 
 export const DEFAULT_VIEWPORT_OPTS: Required<
 	Pick<
@@ -142,18 +143,95 @@ function getCacheFolder(userId: number): Folder {
 	}
 	return pf;
 }
+function getAnimId(animateScript?: Instance, key?: string): string | undefined {
+	if (!animateScript || !key) return;
+	const node = animateScript.FindFirstChild(key);
+	if (!node) return;
+	const animObj = (node.IsA("Animation") && node) || node.FindFirstChildWhichIsA("Animation");
+	return animObj ? (animObj as Animation).AnimationId : undefined;
+}
 
-function buildViewportAvatar(userId: number): Model {
+// === Play idle và đồng thời nhớ Idle gốc ===
+export function playIdleOnHumanoid(h: Humanoid) {
 	const lp = Players.LocalPlayer!;
-	const hum = lp.Character?.FindFirstChildOfClass("Humanoid");
-	const desc = hum ? hum.GetAppliedDescription() : getHumanoidDescriptionCompat(userId);
+	const idleId = getAnimId(lp.Character?.FindFirstChild("Animate"), "idle");
+	if (idleId && idleId !== "") {
+		InitialIdleAnimId = InitialIdleAnimId ?? idleId; // chỉ set lần đầu để giữ “gốc”
+	} else {
+		// nếu chưa có thì cũng không play được
+		return;
+	}
+
+	let animator = h.FindFirstChildOfClass("Animator");
+	if (!animator) {
+		animator = new Instance("Animator");
+		animator.Parent = h;
+	}
+
+	// dừng track cũ rồi play lại
+	for (const tr of animator.GetPlayingAnimationTracks()) tr.Stop(0.05);
+
+	const anim = new Instance("Animation");
+	anim.AnimationId = idleId;
+	const track = animator.LoadAnimation(anim);
+	track.Looped = true;
+	track.Priority = Enum.AnimationPriority.Idle;
+	track.Play(0.15);
+}
+
+// === Stop tất cả & play lại Idle gốc đã snapshot ===
+export function replayPlayerIdleAll(fade = 0.12) {
+	// nếu vì lý do nào đó chưa snapshot, thử lấy lại từ Animate
+	if (!InitialIdleAnimId || InitialIdleAnimId === "") {
+		const again = getAnimId(Players.LocalPlayer?.Character?.FindFirstChild("Animate"), "idle");
+		if (again && again !== "") InitialIdleAnimId = again;
+	}
+	if (!InitialIdleAnimId) return; // không có gì để play
+
+	for (let i = 0; i < Targets.size(); i++) {
+		const h = Targets[i];
+		if (!h || h.Health <= 0) continue;
+
+		let animator = h.FindFirstChildOfClass("Animator");
+		if (!animator) {
+			animator = new Instance("Animator");
+			animator.Parent = h;
+		}
+
+		for (const tr of animator.GetPlayingAnimationTracks()) tr.Stop(0);
+
+		const anim = new Instance("Animation");
+		anim.AnimationId = InitialIdleAnimId;
+		const track = animator.LoadAnimation(anim);
+		track.Looped = true;
+		track.Priority = Enum.AnimationPriority.Idle;
+		track.Play(fade);
+	}
+}
+export function buildViewportAvatar(userId: number): Model {
+	const lp = Players.LocalPlayer!;
+	const liveHum = lp.Character?.FindFirstChildOfClass("Humanoid");
+	const desc = liveHum ? liveHum.GetAppliedDescription() : getHumanoidDescriptionCompat(userId);
 
 	const model = Players.CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15) as Model;
 	model.Name = "Character";
+
+	// xoá Animate trong preview để khỏi loop
+	const ani = model.FindFirstChild("Animate");
+	if (ani && ani.IsA("LocalScript")) ani.Destroy();
+
+	// đảm bảo có Humanoid + PrimaryPart
+	const hum = model.FindFirstChildOfClass("Humanoid") as Humanoid | undefined;
+	if (hum && !hum.FindFirstChildOfClass("Animator")) {
+		const animator = new Instance("Animator");
+		animator.Parent = hum;
+	}
 	const hrp = model.FindFirstChild("HumanoidRootPart") as BasePart | undefined;
 	if (hrp) model.PrimaryPart = hrp;
+
 	return model;
 }
+
 function mergedOpts(overrides?: ViewportOpts) {
 	return { ...DEFAULT_VIEWPORT_OPTS, ...(overrides ?? {}) };
 }
@@ -566,18 +644,18 @@ function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot, hard = false) 
 }
 
 /** Broadcast một desc (đã chỉnh) tới tất cả humanoid & cập nhật cache hợp nhất */
-function broadcastApplyFrom(srcDesc: HumanoidDescription, hard = false) {
+function broadcastApplyFrom(srcDesc: HumanoidDescription, hard = false, animation = false) {
 	persistFromDesc(srcDesc);
-
+	print(animation);
 	for (let i = 0; i < Targets.size(); i++) {
 		const hum = Targets[i];
 		applyClothesBodyAndAccessories(hum, srcDesc, hard);
 		if (DescCache) applySnapshotToHumanoid(hum, DescCache, hard);
+		if (animation) playIdleOnHumanoid(hum);
 	}
 
 	const uid = Players.LocalPlayer?.UserId;
 	if (uid !== undefined) refreshCachePrefab(uid);
-
 	requestReframe();
 	notifyAssetsChanged();
 }
@@ -886,7 +964,7 @@ export function setupViewportFromCachedCharacter(
 		ReframeHooks.add(reframeThisViewport);
 		applyCachedDescriptionIfAny(false); // apply mềm để tránh giật
 		notifyAssetsChanged();
-
+		if (displayHum) playIdleOnHumanoid(displayHum);
 		// 5) Tính bbox + camera lần đầu
 		const [bbCFrame, size] = display.GetBoundingBox();
 		rawCenter = bbCFrame.Position;
@@ -1130,8 +1208,8 @@ export function applyCachedDescriptionIfAny(hard = false) {
 	for (let i = 0; i < Targets.size(); i++) applySnapshotToHumanoid(Targets[i], DescCache, hard);
 }
 /** Apply 1 HumanoidDescription lên tất cả viewport humanoids + update DescCache. */
-export function applyDescriptionToAllTargets(desc: HumanoidDescription, hard = false) {
-	broadcastApplyFrom(desc, hard);
+export function applyDescriptionToAllTargets(desc: HumanoidDescription, hard = false, animation = true) {
+	broadcastApplyFrom(desc, hard, animation);
 }
 
 /** Từ 2 slider (hue 0..1, value 0..1) sinh Color3 rồi áp vào phần body chọn. */
@@ -1243,41 +1321,76 @@ export function getCurrentHumanoidAssets(): SimpleAssetInfo[] {
 
 	const d = hum.GetAppliedDescription();
 
-	const out = new Array<SimpleAssetInfo>();
-	const seen = new Map<number, true>();
+	// Thu thập ID nhanh với bảng boolean (thay Map)
+	const seen: { [id: number]: true } = {};
+	const ids: number[] = [];
 
-	const push = (id: number, nameOverride?: string) => {
-		if (id > 0 && !seen.has(id)) {
-			seen.set(id, true as true);
-			out.push({ id, name: nameOverride ?? getAssetName(id) });
+	const pushId = (id: number) => {
+		if (id > 0 && seen[id] !== true) {
+			seen[id] = true;
+			ids.push(id);
 		}
 	};
 
-	// 1) Classic + Accessories CSV + BodyPart (đã có sẵn)
+	// 1) Classic + Accessories CSV + BodyPart
 	const rigidIds = collectAssetIdsFromDesc(d);
-	for (const id of rigidIds) push(id);
+	for (let i = 0; i < rigidIds.size(); i++) {
+		pushId(rigidIds[i]);
+	}
 
 	// 2) Layered (Jacket/Sweater/Shorts/Skirt/Shoes)
 	const layeredIds = collectLayeredIdsFromDesc(d);
-	for (const id of layeredIds) push(id);
+	for (let i = 0; i < layeredIds.size(); i++) {
+		pushId(layeredIds[i]);
+	}
 
-	// 3) Animation Slots (Walk/Run/Idle/Jump/Fall/Swim/Climb)
-	const slots: Array<[string, number]> = [
-		["Walk", d.WalkAnimation],
-		["Run", d.RunAnimation],
-		["Idle", d.IdleAnimation],
-		["Jump", d.JumpAnimation],
-		["Fall", d.FallAnimation],
-		["Swim", d.SwimAnimation],
-		["Climb", d.ClimbAnimation],
-	];
+	// 3) Animation Slots: không tạo mảng tạm, đọc trực tiếp
+	//    Đồng thời lưu prefix slot để ghép tên sau (tránh gọi getAssetName 2 lần)
+	const slotPrefixById: { [id: number]: string } = {};
 
-	for (const [slot, id] of slots) {
-		if (typeOf(id) === "number" && id > 0) {
-			// Đặt tên có prefix slot để phân biệt trên UI
-			const base = getAssetName(id);
-			push(id, `[${slot}] ${base}`);
-		}
+	const walk = d.WalkAnimation;
+	if (typeOf(walk) === "number" && walk > 0) {
+		pushId(walk);
+		slotPrefixById[walk] = "Walk";
+	}
+	const run = d.RunAnimation;
+	if (typeOf(run) === "number" && run > 0) {
+		pushId(run);
+		slotPrefixById[run] = "Run";
+	}
+	const idle = d.IdleAnimation;
+	if (typeOf(idle) === "number" && idle > 0) {
+		pushId(idle);
+		slotPrefixById[idle] = "Idle";
+	}
+	const jump = d.JumpAnimation;
+	if (typeOf(jump) === "number" && jump > 0) {
+		pushId(jump);
+		slotPrefixById[jump] = "Jump";
+	}
+	const fall = d.FallAnimation;
+	if (typeOf(fall) === "number" && fall > 0) {
+		pushId(fall);
+		slotPrefixById[fall] = "Fall";
+	}
+	const swim = d.SwimAnimation;
+	if (typeOf(swim) === "number" && swim > 0) {
+		pushId(swim);
+		slotPrefixById[swim] = "Swim";
+	}
+	const climb = d.ClimbAnimation;
+	if (typeOf(climb) === "number" && climb > 0) {
+		pushId(climb);
+		slotPrefixById[climb] = "Climb";
+	}
+
+	// 4) Resolve tên 1 lần duy nhất cho mỗi id
+	const out = new Array<SimpleAssetInfo>(ids.size());
+	for (let i = 0; i < ids.size(); i++) {
+		const id = ids[i];
+		const base = getAssetName(id);
+		const prefix = slotPrefixById[id];
+		out[i] = prefix ? { id, name: `[${prefix}] ${base}` } : { id, name: base };
 	}
 
 	return out;
@@ -1533,6 +1646,10 @@ export async function tryOnEmote(emoteAssetId: number, opts?: TryOnEmoteOpts) {
 
 			track.Priority = options.priority;
 			track.Looped = options.looped;
+			remotes.server.playEmote.fire(
+				{ kind: "id", value: emoteAssetId },
+				{ stopOthers: options.stopOthers, looped: options.looped },
+			);
 
 			EmoteTrackByHumanoid.set(hum, track);
 			track.Play(options.fadeIn, options.weight);
@@ -1552,6 +1669,7 @@ export function stopEmote(fadeOut = 0.15) {
 			if (tr && tr.IsPlaying) tr.Stop(fadeOut);
 		}
 	});
+	remotes.server.stopEmote.fire(fadeOut);
 }
 function collectLayeredIdsFromDesc(d: HumanoidDescription): number[] {
 	const out = new Array<number>();

@@ -15,6 +15,8 @@ const FORCE_WEAR_COOLDOWN_SEC = 2;
 
 // ===== DEBUG =====
 let lastForceWearAt = 0;
+// thêm ở đầu file (gần các const khác)
+const MOVE_STOP_COOLDOWN_SEC = 0.5; // tránh spam remote khi nhân vật đang chạy
 
 // ===== HOOKS =====
 function onCharacterReset(character: Model, humanoid: Humanoid) {
@@ -48,8 +50,6 @@ function csvToIds(csv: string): number[] {
 	}
 	return out;
 }
-
-
 
 // ===== GOM ASSET ID CHO SO SÁNH (CHỈ TỪ DESC) =====
 // 1) Classic (quần áo, face, CSV accessories legacy, body parts, animations)
@@ -243,6 +243,23 @@ class DescriptionWatcher {
 
 			this.justReset = true;
 			onCharacterReset(character, hum);
+
+			// ⬇️⬇️ NEW: auto stop emote khi nhân vật bắt đầu di chuyển
+			let lastStopAt = 0;
+			const runningConn = hum.Running.Connect((speed) => {
+				if (speed > 0.1) {
+					const now = os.clock();
+					if (now - lastStopAt >= MOVE_STOP_COOLDOWN_SEC) {
+						lastStopAt = now;
+						// Dừng emote server (replicate)
+						remotes.server.stopEmote.fire(0.12);
+						// (tuỳ chọn) dừng emote local preview nếu bạn muốn:
+						// stopEmote(0.12);
+					}
+				}
+			});
+			this.conns.push(runningConn);
+			// ⬆️⬆️ END NEW
 
 			const loaded = LOCAL_PLAYER.CharacterAppearanceLoaded.Connect((char) => {
 				if (char === this.character && this.humanoid) this.captureBaseline();

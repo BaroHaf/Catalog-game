@@ -18,6 +18,18 @@ export type AnimationSlots = {
 	Swim: number;
 	Climb: number;
 };
+type PlayEmotePayload =
+	| { kind: "name"; value: string } // PlayEmote("wave"...)
+	| { kind: "id"; value: number }; // UGC emote assetId
+
+export type PlayEmoteOpts = {
+	priority?: Enum.AnimationPriority; // mặc định Action
+	weight?: number; // mặc định 1
+	fadeIn?: number; // mặc định 0.15
+	speed?: number; // mặc định 1
+	looped?: boolean; // mặc định true
+	stopOthers?: boolean; // mặc định true
+};
 export type InventorySyncPayload = {
 	full?: boolean;
 	data?: Record<string, ItemData>;
@@ -119,7 +131,13 @@ export type OutfitDelta = Partial<{
 	HeadScale: number;
 	BodyTypeScale: number;
 	ProportionScale: number;
-
+	WalkAnimation: number;
+	RunAnimation: number;
+	IdleAnimation: number;
+	JumpAnimation: number;
+	FallAnimation: number;
+	SwimAnimation: number;
+	ClimbAnimation: number;
 	hard?: boolean;
 }>;
 
@@ -247,7 +265,9 @@ export const remotes = createRemotes({
 				animSlots?: AnimationSlots,
 			] // ⬅️ thêm animSlots
 		>(),
+		stopEmote: remote<Server, [fadeOut?: number]>(),
 
+		playEmote: remote<Server, [payload: PlayEmotePayload, opts?: PlayEmoteOpts]>(),
 		requestEmoteAnim: remote<Server, [reqId: number, emoteId: number]>(),
 		resolveBundleFromAssetId: remote<Server, [assetId: number]>(),
 	}),

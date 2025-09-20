@@ -81,8 +81,6 @@ export const CATEGORIES: Category[] = [
 			{ name: "Sweaters", filterType: "assetType", filterValue: "SweaterAccessory" },
 			{ name: "Shorts", filterType: "assetType", filterValue: "ShortsAccessory" },
 			{ name: "Dress/Skirt", filterType: "assetType", filterValue: "DressSkirtAccessory" },
-			{ name: "Left Shoe", filterType: "assetType", filterValue: "LeftShoeAccessory" },
-			{ name: "Right Shoe", filterType: "assetType", filterValue: "RightShoeAccessory" },
 		],
 	},
 

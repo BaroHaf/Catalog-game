@@ -5,8 +5,8 @@
 // - Có cache để tránh lag khi render hàng loạt.
 
 import { Players, AssetService } from "@rbxts/services";
-import { applyDescriptionToAllTargets, getPrimaryHumanoid } from "./camerarotation";
-import { remotes } from "shared/remotes";
+import { applyDescriptionToAllTargets, getPrimaryHumanoid, replayPlayerIdleAll } from "./camerarotation";
+import { remotes, type OutfitDelta } from "shared/remotes";
 import { sendAlert } from "client/alerts";
 import { SHOP_ALERT_STYLE } from "shared/constants/constant";
 
@@ -25,8 +25,8 @@ export type AnimationSlots = {
 };
 
 const SlotsCache = new Map<number, AnimationSlots>(); // bundleId -> slots
-const OutfitIdCache = new Map<number, number>();      // bundleId -> outfitId
-let PrevSlots: AnimationSlots | undefined;            // Lưu slots trước khi tryOn
+const OutfitIdCache = new Map<number, number>(); // bundleId -> outfitId
+let PrevSlots: AnimationSlots | undefined; // Lưu slots trước khi tryOn
 
 /* =========================
    2) RESOLVE HELPERS
@@ -74,6 +74,43 @@ function writeSlots(d: HumanoidDescription, s: AnimationSlots) {
 	d.FallAnimation = s.Fall;
 	d.SwimAnimation = s.Swim;
 	d.ClimbAnimation = s.Climb;
+}
+
+/* =========================
+   2.1) PROFILE SLOTS (gốc của player)
+   ========================= */
+
+function getProfileSlots(): AnimationSlots {
+	const lp = Players.LocalPlayer!;
+	const userId = lp.UserId;
+
+	// Ưu tiên API profile
+	const [ok, d] = pcall(() => Players.GetHumanoidDescriptionFromUserId(userId));
+	if (ok && d) {
+		return readSlots(d as HumanoidDescription);
+	}
+
+	// Fallback: đọc từ LocalPlayer.Animate
+	const animate = lp.Character?.FindFirstChild("Animate");
+	const animIdFrom = (key: string): number => {
+		const node = animate?.FindFirstChild(key);
+		if (!node) return 0;
+		const anim = (node.IsA("Animation") && node) || node.FindFirstChildWhichIsA("Animation");
+		if (!anim || !anim.IsA("Animation")) return 0;
+		const raw = anim.AnimationId;
+		const num = tonumber(raw.gsub("rbxassetid://", ""));
+		return num ?? 0;
+	};
+
+	return {
+		Walk: animIdFrom("walk"),
+		Run: animIdFrom("run"),
+		Idle: animIdFrom("idle"),
+		Jump: animIdFrom("jump"),
+		Fall: animIdFrom("fall"),
+		Swim: animIdFrom("swim"),
+		Climb: animIdFrom("climb"),
+	};
 }
 
 /* =========================
@@ -134,7 +171,7 @@ export function tryOnAnimationBundle(bundleId: number) {
 	// Preview (soft)
 	const d = hum.GetAppliedDescription();
 	writeSlots(d, targetSlots);
-	applyDescriptionToAllTargets(d, false);
+	replayPlayerIdleAll();
 
 	// Sync server
 	remotes.server.wearOutfit.fire(`[ANIM_BUNDLE:${bundleId}]`, [], false, undefined, undefined, targetSlots);
@@ -143,22 +180,20 @@ export function tryOnAnimationBundle(bundleId: number) {
 export function takeOffAnimationBundle() {
 	const hum = getPrimaryHumanoid();
 	if (!hum) return;
-	if (!PrevSlots) return;
+
+	// về slots gốc (profile / Animate)
+	const baseSlots = getProfileSlots();
 
 	// Local revert
 	const d = hum.GetAppliedDescription();
-	writeSlots(d, PrevSlots);
+	writeSlots(d, baseSlots);
 	applyDescriptionToAllTargets(d, false);
 
+	// Phát lại Idle gốc ngay
+	replayPlayerIdleAll();
+
 	// Server revert
-	remotes.server.wearOutfit.fire(
-		"[ANIM_TAKEOFF]",
-		[],
-		false,
-		undefined,
-		undefined,
-		PrevSlots,
-	);
+	remotes.server.wearOutfit.fire("[ANIM_TAKEOFF]", [], false, undefined, undefined, baseSlots);
 
 	PrevSlots = undefined;
 }
@@ -198,16 +233,52 @@ export function takeOffSingleAnimation(assetId: number) {
 	if (!hum || assetId <= 0) return;
 
 	const d = hum.GetAppliedDescription();
+	const baseSlots = getProfileSlots();
 
-	if (d.WalkAnimation === assetId) d.WalkAnimation = PrevSlots ? PrevSlots.Walk : 0;
-	if (d.RunAnimation === assetId) d.RunAnimation = PrevSlots ? PrevSlots.Run : 0;
-	if (d.IdleAnimation === assetId) d.IdleAnimation = PrevSlots ? PrevSlots.Idle : 0;
-	if (d.JumpAnimation === assetId) d.JumpAnimation = PrevSlots ? PrevSlots.Jump : 0;
-	if (d.FallAnimation === assetId) d.FallAnimation = PrevSlots ? PrevSlots.Fall : 0;
-	if (d.SwimAnimation === assetId) d.SwimAnimation = PrevSlots ? PrevSlots.Swim : 0;
-	if (d.ClimbAnimation === assetId) d.ClimbAnimation = PrevSlots ? PrevSlots.Climb : 0;
+	// build payload delta để server sync đúng slot
+	const delta: Partial<OutfitDelta> = {};
+	let touchedIdle = false;
 
+	if (d.WalkAnimation === assetId) {
+		d.WalkAnimation = baseSlots.Walk;
+		delta.WalkAnimation = baseSlots.Walk;
+	}
+	if (d.RunAnimation === assetId) {
+		d.RunAnimation = baseSlots.Run;
+		delta.RunAnimation = baseSlots.Run;
+	}
+	if (d.IdleAnimation === assetId) {
+		d.IdleAnimation = baseSlots.Idle;
+		delta.IdleAnimation = baseSlots.Idle;
+		touchedIdle = true;
+	}
+	if (d.JumpAnimation === assetId) {
+		d.JumpAnimation = baseSlots.Jump;
+		delta.JumpAnimation = baseSlots.Jump;
+	}
+	if (d.FallAnimation === assetId) {
+		d.FallAnimation = baseSlots.Fall;
+		delta.FallAnimation = baseSlots.Fall;
+	}
+	if (d.SwimAnimation === assetId) {
+		d.SwimAnimation = baseSlots.Swim;
+		delta.SwimAnimation = baseSlots.Swim;
+	}
+	if (d.ClimbAnimation === assetId) {
+		d.ClimbAnimation = baseSlots.Climb;
+		delta.ClimbAnimation = baseSlots.Climb;
+	}
+
+	// Preview mềm tại client
 	applyDescriptionToAllTargets(d, false);
+
+	// Nếu có đụng Idle thì phát lại để pose đúng liền
+	if (touchedIdle) replayPlayerIdleAll();
+
+	// 🔔 Sync server (soft)
+	if (next(delta)) {
+		remotes.server.outfitDelta.fire(delta as OutfitDelta);
+	}
 }
 
 export function isAnimationBundleType(bundleType?: Enum.BundleType): boolean {
