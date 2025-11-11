@@ -12,14 +12,15 @@ export function Closebutton() {
   return (
     <ReactiveButtonDiff
       size={new UDim2(0, rem(5), 0, rem(5))}
-      position={new UDim2(0, 0, 1, 0)}
-      anchorPoint={new Vector2(0, 1)}
+      position={new UDim2(1, 0, 0, 0)}
+      anchorPoint={new Vector2(1, 0)}
       backgroundTransparency={1}
       onHover={setHovered}
       onClick={() => {
         store.setCheckout(true);
         store.setShopOpen(false);
       }}
+      zIndex={5}
     >
       <Image
         image={images.ui.cancel_icon}

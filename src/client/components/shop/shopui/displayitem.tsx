@@ -93,39 +93,41 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 		(searchParams as unknown as { Limit?: number }).Limit = 30;
 
 		let assetType: Enum.AvatarAssetType | undefined;
+		let isBundle = false; // cờ để map bundle vs asset
 
 		// ==== Animations (bundle) ====
 		if (page.lower() === "animations") {
 			searchParams.BundleTypes = [Enum.BundleType.Animations];
 			searchParams.SearchKeyword =
-				keyword !== ""
-					? keyword
-					: subpage.filterType === "keyword"
-					? (subpage.value ?? "")
-					: "";
+				keyword !== "" ? keyword : subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
+			isBundle = true;
 		}
-		// ==== Body (body parts assets) ====
+		// ==== Body (body parts or dynamic head bundle) ====
 		else if (page === "Body") {
-			// Chỉ lọc theo AssetTypes của body part, và xem cả offsale
-			searchParams.IncludeOffSale = true;
-			// searchParams.CategoryFilter = Enum.CatalogCategoryFilter.BodyParts;
-
-			if (subpage.filterType === "assetType") {
-				assetType = (Enum.AvatarAssetType as unknown as Record<string, Enum.AvatarAssetType>)[
-					subpage.value ?? ""
+			if (subpage.value === "DynamicHead") {
+				// ĐÚNG: dùng BundleType.DynamicHead, không return giữa chừng
+				searchParams.IncludeOffSale = false; // muốn cả offsale thì để true
+				(searchParams as unknown as { BundleTypes?: Enum.BundleType[] }).BundleTypes = [
+					Enum.BundleType.DynamicHead,
 				];
+				// clear AssetTypes để tránh xung đột
+				(searchParams as unknown as { AssetTypes?: Enum.AvatarAssetType[] }).AssetTypes = [];
+				searchParams.SearchKeyword = keyword ?? "";
+				isBundle = true;
 			} else {
-				assetType = Enum.AvatarAssetType.Torso;
-			}
+				searchParams.IncludeOffSale = true;
+				const key = subpage.filterType === "assetType" ? (subpage.value ?? "") : "Torso";
+				assetType = (Enum.AvatarAssetType as unknown as Record<string, Enum.AvatarAssetType>)[key];
 
-			if (!assetType) {
-				setIsInitialLoading(false);
-				return;
+				if (!assetType) {
+					setIsInitialLoading(false);
+					return;
+				}
+				searchParams.AssetTypes = [assetType];
+				searchParams.SearchKeyword = keyword;
 			}
-			searchParams.AssetTypes = [assetType];
-			searchParams.SearchKeyword = "";
 		}
-		// ==== Các page còn lại ====
+		// ==== Các page còn lại (assets) ====
 		else {
 			if (keyword !== "") {
 				assetType = getAssetTypeByPage(page);
@@ -147,12 +149,7 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 				searchParams.SearchKeyword = "";
 			} else {
 				assetType = getAssetTypeByPage(page);
-
-				if (
-					page === "Hair" &&
-					subpage.filterType === "keyword" &&
-					(subpage.value ?? "").lower() === "bangs"
-				) {
+				if (page === "Hair" && subpage.filterType === "keyword" && (subpage.value ?? "").lower() === "bangs") {
 					assetType = Enum.AvatarAssetType.FaceAccessory;
 				}
 				if (!assetType) {
@@ -160,17 +157,15 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 					return;
 				}
 				searchParams.AssetTypes = [assetType];
-				searchParams.SearchKeyword =
-					subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
+				searchParams.IncludeOffSale = true;
+				searchParams.SearchKeyword = subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
 			}
 		}
 
 		let cancelled = false;
 
 		task.spawn(() => {
-			const [success, catalogPages] = pcall(() =>
-				AvatarEditorService.SearchCatalog(searchParams),
-			);
+			const [success, catalogPages] = pcall(() => AvatarEditorService.SearchCatalog(searchParams));
 
 			const finish = () => {
 				const elapsed = time() - startTime;
@@ -186,10 +181,24 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 			}
 
 			const first = catalogPages.GetCurrentPage() as SearchCatalogResult[];
-
 			let assetItems: AssetItem[];
-			if (page.lower() === "animations") {
-				assetItems = convertAnimationBundles(first);
+
+			if (isBundle) {
+				// map bundle (DynamicHead hoặc Animations)
+				assetItems = first.map((r) => {
+					const anyR = r as unknown as {
+						Id: number;
+						Name: string;
+						Price?: number;
+						CreatorName?: string;
+					};
+					return {
+						Id: anyR.Id,
+						Name: anyR.Name,
+						Price: anyR.Price,
+						Creator: anyR.CreatorName ?? "Unknown",
+					};
+				});
 			} else {
 				assetItems = convertResults(first, assetType!);
 				if (subpage.filterType === "keyword" && (subpage.value ?? "") !== "") {
@@ -235,12 +244,24 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 
 				const newPage = pages.GetCurrentPage() as SearchCatalogResult[];
 				let newItems: AssetItem[];
-				if (page.lower() === "animations") {
-					newItems = convertAnimationBundles(newPage);
+				if ((items.size() > 0 && items[0].AssetType === undefined) || page.lower() === "animations") {
+					// đang ở chế độ bundle
+					newItems = newPage.map((r) => {
+						const anyR = r as unknown as {
+							Id: number;
+							Name: string;
+							Price?: number;
+							CreatorName?: string;
+						};
+						return {
+							Id: anyR.Id,
+							Name: anyR.Name,
+							Price: anyR.Price,
+							Creator: anyR.CreatorName ?? "Unknown",
+						};
+					});
 				} else {
-					const inferred =
-						(items[0]?.AssetType as Enum.AvatarAssetType) ??
-						Enum.AvatarAssetType.TShirt;
+					const inferred = (items[0]?.AssetType as Enum.AvatarAssetType) ?? Enum.AvatarAssetType.TShirt;
 					newItems = convertResults(newPage, inferred);
 				}
 
@@ -266,21 +287,13 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 	const PanelComponent = specialKey ? SPECIAL_PANELS[specialKey] : undefined;
 
 	return (
-		<Frame
-			size={new UDim2(0.7, 0, 1, 0)}
-			backgroundColor={Color3.fromRGB(38, 38, 39)}
-			visible={visible}
-		>
+		<Frame size={new UDim2(0.7, 0, 1, 0)} backgroundColor={Color3.fromRGB(38, 38, 39)} visible={visible}>
 			<uicorner CornerRadius={new UDim(0, 8)} />
 			<Displaysearch />
 			<uilistlayout />
 			{!catalogVisible && PanelComponent && <PanelComponent />}
 
-			<Frame
-				size={new UDim2(1, 0, 1, 0)}
-				backgroundTransparency={1}
-				visible={catalogVisible}
-			>
+			<Frame size={new UDim2(1, 0, 1, 0)} backgroundTransparency={1} visible={catalogVisible}>
 				<uiflexitem FlexMode="Fill" />
 				<scrollingframe
 					Size={new UDim2(1, 0, 1, 0)}
@@ -305,10 +318,14 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 
 					{!isInitialLoading &&
 						items.map((item, index) => {
-							const thumbUrl =
-								page.lower() === "animations"
-									? `rbxthumb://type=BundleThumbnail&id=${item.Id}&w=420&h=420`
-									: `rbxthumb://type=Asset&id=${item.Id}&w=420&h=420`;
+							// bundle thumbnail khi là animations hoặc body/dynamichead
+							const isBundleThumb =
+								page.lower() === "animations" ||
+								(page === "Body" && subpage.value === "DynamicHead");
+
+							const thumbUrl = isBundleThumb
+								? `rbxthumb://type=BundleThumbnail&id=${item.Id}&w=420&h=420`
+								: `rbxthumb://type=Asset&id=${item.Id}&w=420&h=420`;
 
 							return (
 								<ItemField
@@ -320,19 +337,13 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 									creator={item.Creator}
 									assetType={item.AssetType as Enum.AvatarAssetType}
 									bundleType={
-										page.lower() === "animations"
-											? Enum.BundleType.Animations
-											: undefined
+										isBundleThumb ? Enum.BundleType.DynamicHead : undefined
 									}
 									LayoutOrder={index}
 									cellW={cellW}
 									index={index}
 									open={selectedId === item.Id}
-									onToggleOpen={() =>
-										setSelectedId((cur) =>
-											cur === item.Id ? undefined : item.Id,
-										)
-									}
+									onToggleOpen={() => setSelectedId((cur) => (cur === item.Id ? undefined : item.Id))}
 								/>
 							);
 						})}
@@ -355,10 +366,8 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 	);
 }
 
-function convertResults(
-	results: SearchCatalogResult[],
-	assetType: Enum.AvatarAssetType,
-): AssetItem[] {
+// map asset thường
+function convertResults(results: SearchCatalogResult[], assetType: Enum.AvatarAssetType): AssetItem[] {
 	return results.map((r) => ({
 		Id: r.Id,
 		Name: r.Name,
@@ -368,31 +377,7 @@ function convertResults(
 	}));
 }
 
-// 🔹 Hàm riêng cho Animations
-function convertAnimationBundles(results: SearchCatalogResult[]): AssetItem[] {
-	const out: AssetItem[] = [];
-	for (const r of results) {
-		const anyR = r as unknown as {
-			BundleId?: number;
-			Id?: number;
-			Name: string;
-			Price?: number;
-			CreatorName?: string;
-		};
-		const id = anyR.BundleId ?? anyR.Id;
-		if (!id) continue;
-		out.push({
-			Id: id,
-			Name: anyR.Name,
-			Price: anyR.Price,
-			Creator: anyR.CreatorName ?? "Unknown",
-		});
-	}
-	return out;
-}
-
 function shouldLoadNext(sc: ScrollingFrame) {
-	const bottom =
-		sc.AbsoluteWindowSize.Y * (2 - SCROLL_LOAD_FACTOR) + sc.CanvasPosition.Y;
+	const bottom = sc.AbsoluteWindowSize.Y * (2 - SCROLL_LOAD_FACTOR) + sc.CanvasPosition.Y;
 	return bottom >= sc.AbsoluteCanvasSize.Y;
 }

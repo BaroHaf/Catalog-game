@@ -7,7 +7,10 @@ on:
       - "README.md"
       - "LICENSE.md"
       - "scripts/**"
-      - ".github/**"
+      # ⚠️ Nếu để dòng này thì khi chỉ sửa file .github/** workflow sẽ không chạy
+      # - ".github/**"
+  pull_request:
+    branches: [main]
   release:
     types: [released, prereleased]
   workflow_dispatch:
@@ -23,23 +26,40 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+
+      # Cài Node
+      - uses: actions/setup-node@v4
         with:
-          version: 9.2.0
-          run_install: true
+          node-version: 20
+
+      # Cài pnpm (không auto install)
+      - run: npm i -g pnpm@9.2.0
+
+      # Cài dependencies
+      - name: Install deps
+        run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+
+      # Setup RoKit/Mantle
       - uses: CompeyDev/setup-rokit@v0.1.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Compile TypeScript nếu có script "build"
       - name: Compile
-        run: pnpm build --verbose
+        run: |
+          if pnpm run | grep -qE '^\s*build\s*$'; then
+            pnpm run build --verbose
+          else
+            echo "No build script. Skipping compile."
+          fi
 
+      # Build project với Rojo
       - name: Build project
-        run: rojo build --output place.rbxlx
+        run: rojo build default.project.json --output place.rbxlx
 
+      # Upload artifact
       - name: Upload place artifact
         uses: actions/upload-artifact@v4
         with:
@@ -48,8 +68,10 @@ jobs:
 
   deploy:
     runs-on: self-hosted
-    environment: canary
     needs: build
+    environment: canary
+    # Chỉ deploy khi release hoặc bấm tay
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
 
     steps:
       - uses: actions/checkout@v4

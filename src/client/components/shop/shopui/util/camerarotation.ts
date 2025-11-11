@@ -1,5 +1,5 @@
 // src/client/components/shop/shopui/util/camerarotation.ts
-import { Players, ReplicatedStorage, MarketplaceService } from "@rbxts/services";
+import { Players, ReplicatedStorage, MarketplaceService, AvatarEditorService } from "@rbxts/services";
 import { sendAlert } from "client/alerts";
 import { SHOP_ALERT_MSG, SHOP_ALERT_STYLE } from "shared/constants/constant";
 import { remotes, type OutfitDelta } from "shared/remotes";
@@ -1708,4 +1708,59 @@ function getLayeredEquippedLocal(): Array<{ id: number; assetType: Enum.AvatarAs
 		}
 	}
 	return out;
+}
+// ====== DÁN VÀO DƯỚI KHỐI HELPER (bất kỳ trước section 7 cũng được) ======
+
+// Hàm này lấy assetId của Head từ bundleId
+async function fetchHeadFromBundle(bundleId: number): Promise<number | undefined> {
+	const AssetService = game.GetService("AssetService");
+	const [ok, result] = pcall(() => AssetService.GetBundleDetailsAsync(bundleId));
+	if (!ok || !result) {
+		warn(`Không lấy được bundle ${bundleId}`);
+		return undefined;
+	}
+	const items = (result as unknown as { Items?: { Id: number }[] }).Items;
+	if (!items) return undefined;
+
+	for (const item of items) {
+		// Giả sử cái “Head” là loại DynamicHead hoặc tên có “Head”
+		if (getAssetType(item.Id) === Enum.AvatarAssetType.DynamicHead) {
+			return item.Id;
+		}
+	}
+	return undefined;
+}
+
+// Hàm này dùng để mặc head từ bundle
+export async function tryOnBundleHead(bundleId: number) {
+	const headId = await fetchHeadFromBundle(bundleId);
+	if (!headId) {
+		warn(`Không tìm head trong bundle ${bundleId}`);
+		return;
+	}
+	tryOnAsset(Enum.AvatarAssetType.DynamicHead, headId, { replaceList: true });
+}
+
+// Hàm này gỡ head đang mặc (hoặc head của bundle nếu biết bundleId)
+export function takeOffBundleHead(bundleId?: number) {
+	const hum = getAnyTarget();
+	if (!hum) return;
+
+	const desc = hum.GetAppliedDescription();
+	const currentHead = desc.Head as number;
+
+	if (bundleId) {
+		fetchHeadFromBundle(bundleId).then((headId) => {
+			if (headId !== currentHead) return;
+			desc.Head = 0;
+			broadcastApplyFrom(desc, true);
+			remotes.server.outfitDelta.fire({ Head: 0, hard: true } as OutfitDelta);
+		});
+	} else {
+		if (currentHead > 0) {
+			desc.Head = 0;
+			broadcastApplyFrom(desc, true);
+			remotes.server.outfitDelta.fire({ Head: 0, hard: true } as OutfitDelta);
+		}
+	}
 }

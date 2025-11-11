@@ -8,7 +8,7 @@ export function Closebutsaveui() {
   const rem = useRem();
   const store = useStore();
   const [hovered, setHovered] = useState(false);
-
+  
   return (
     <ReactiveButtonDiff
       size={new UDim2(0, rem(5), 0, rem(5))}
@@ -17,10 +17,10 @@ export function Closebutsaveui() {
       backgroundTransparency={1}
       onHover={setHovered}
       onClick={() => {
-        // HARD CLOSE: reset page về "shop", rồi đóng
         store.setMenuPage("shop");
         store.setShopOpen(false);
       }}
+      
     >
       <Image
         image={images.ui.cancel_icon}
