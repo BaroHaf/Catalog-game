@@ -36,14 +36,14 @@ importers:
         specifier: ^4.3.1
         version: 4.3.1
       '@rbxts/remo':
-        specifier: ^1.5.2
-        version: 1.5.2
+        specifier: ^1.5.3
+        version: 1.5.3
       '@rbxts/ripple':
-        specifier: ^0.9.3
-        version: 0.9.3
+        specifier: ^0.10.0
+        version: 0.10.0
       '@rbxts/services':
-        specifier: ^1.5.5
-        version: 1.5.5
+        specifier: ^1.6.0
+        version: 1.6.0
       '@rbxts/set-timeout':
         specifier: ^1.1.2
         version: 1.1.2
@@ -53,16 +53,16 @@ importers:
       '@rbxts/testez':
         specifier: 0.4.2-ts.0
         version: 0.4.2-ts.0
+      '@rbxts/types':
+        specifier: ^1.0.896
+        version: 1.0.896
       '@rbxts/validate-tree':
         specifier: ^2.0.2
         version: 2.0.2
     devDependencies:
       '@rbxts/compiler-types':
-        specifier: 3.0.0-types.0
+        specifier: ^3.0.0-types.0
         version: 3.0.0-types.0
-      '@rbxts/types':
-        specifier: ^1.0.852
-        version: 1.0.852
       '@typescript-eslint/eslint-plugin':
         specifier: ^8.32.1
         version: 8.32.1(@typescript-eslint/parser@8.32.1(eslint@8.57.1)(typescript@5.8.3))(eslint@8.57.1)(typescript@5.8.3)
@@ -243,14 +243,14 @@ packages:
   '@rbxts/reflex@4.3.1':
     resolution: {integrity: sha512-S5MbEpHKeRh9NWhwGJ789WbUsmlAlpQziWaNK4+kz1EpaaQ7uHQMZAuN1DYl4+QkqmOSuPlj04COwmArBGWH1Q==}
 
-  '@rbxts/remo@1.5.2':
-    resolution: {integrity: sha512-UQSlJgLcLg1+ocXvg30TfdbuvrS4Qc3yzoxLltc+OP71fF6PmaUg/b6EQlXIt/uBCTOszDHJ7I3nlyG+pTLFjQ==}
+  '@rbxts/remo@1.5.3':
+    resolution: {integrity: sha512-yNw4FXqE06MVDFrgW48anqXWiiiFN5Udvir4f/F9w4tXGTTDXO4xedL3RrVC7d/T+i/omrJxP4MRklH6xJo6DQ==}
 
-  '@rbxts/ripple@0.9.3':
-    resolution: {integrity: sha512-GmwjQl7a8pvGPGQYLmaAcf2RBPpneOL5P1+U8CzTHt9tBhCdk0TEJ/MQoTv9JnHD62RMBE1jogQBvuGgl9VXAg==}
+  '@rbxts/ripple@0.10.0':
+    resolution: {integrity: sha512-UZN5lD3DD3JtBZVphl4GlKN4u0m1bbHg7uNdLJmwZYCX+j/XOS+jc7oOEImT5rQkJNuP9jzOYHicxQcXmhPsaQ==}
 
-  '@rbxts/services@1.5.5':
-    resolution: {integrity: sha512-Hu7QH2ecefS60zpakKG3T2vgABydoOJqpSG7nXr59wFAbPk/cA+OcsntYPHUWyHAat0VFGZ5jNZLTLdiqfssvg==}
+  '@rbxts/services@1.6.0':
+    resolution: {integrity: sha512-YH02E1/tGHeMXB0Mam8qPdAZa2fjQWdylEscSL4Zn0RIaQeByYImA2qUsXM3nBdhcyKHDwltzSznDKyCGfFEWA==}
 
   '@rbxts/set-timeout@1.1.2':
     resolution: {integrity: sha512-P/A0IiH9wuZdSJYr4Us0MDFm61nvIFR0acfKFHLkcOsgvIgELC90Up9ugiSsaMEHRIcIcO5UjE39LuS3xTzQHw==}
@@ -261,8 +261,8 @@ packages:
   '@rbxts/testez@0.4.2-ts.0':
     resolution: {integrity: sha512-8Q+OG9ddTD2P3aARCuRKpPqUBvuifgSnHvQMZ6jBMqUzxhIysnb0l4c3vnnaQnvdyZ1OW9tKxcdEHMGTb67uOw==}
 
-  '@rbxts/types@1.0.852':
-    resolution: {integrity: sha512-OMbUGxZwuTMvagMbxCkCtHzSGiK06NWUJxi7OlwtL2f0scVbpzVFkclcHNYkP1TeXmlW1KSTVUa0AGYeIdStag==}
+  '@rbxts/types@1.0.896':
+    resolution: {integrity: sha512-zuw1lpvW8hfnHxUmkoEjJ/NDrfpDjqzKWV1iU18DRoM0VsMleLfUv/t7giN70ST/KnGS6S6ubH8la+JTEl6aRw==}
 
   '@rbxts/validate-tree@2.0.2':
     resolution: {integrity: sha512-OA0E9ZjEeOpPa3XeV5/oC51aro2QFcL5dItufbagYZW8TOsX8C+FDXLx+A/ulMwcF42WcFNcQybxzcWSS/QSrA==}
@@ -1154,8 +1154,8 @@ snapshots:
     dependencies:
       '@rbxts/react': 17.3.0-alpha.1
       '@rbxts/react-roblox': 17.3.0-alpha.1(@rbxts/react@17.3.0-alpha.1)
-      '@rbxts/ripple': 0.9.3
-      '@rbxts/services': 1.5.5
+      '@rbxts/ripple': 0.10.0
+      '@rbxts/services': 1.6.0
       '@rbxts/set-timeout': 1.1.2
 
   '@rbxts/react-reflex@0.3.7(@rbxts/react@17.3.0-alpha.1)(@rbxts/reflex@4.3.1)':
@@ -1174,21 +1174,21 @@ snapshots:
 
   '@rbxts/reflex@4.3.1': {}
 
-  '@rbxts/remo@1.5.2': {}
+  '@rbxts/remo@1.5.3': {}
 
-  '@rbxts/ripple@0.9.3': {}
+  '@rbxts/ripple@0.10.0': {}
 
-  '@rbxts/services@1.5.5': {}
+  '@rbxts/services@1.6.0': {}
 
   '@rbxts/set-timeout@1.1.2':
     dependencies:
-      '@rbxts/services': 1.5.5
+      '@rbxts/services': 1.6.0
 
   '@rbxts/t@3.2.1': {}
 
   '@rbxts/testez@0.4.2-ts.0': {}
 
-  '@rbxts/types@1.0.852': {}
+  '@rbxts/types@1.0.896': {}
 
   '@rbxts/validate-tree@2.0.2': {}
 
