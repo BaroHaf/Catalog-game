@@ -1,211 +1,167 @@
-// src/client/components/shop/saveui/savebuttonui.tsx
 import React, { useState } from "@rbxts/react";
+import { Players } from "@rbxts/services";
 import { Frame } from "client/components/ui/frame";
-import { useRem } from "client/hooks";
-import { Button } from "client/components/ui/button";
 import { Image } from "client/components/ui/image";
-import { images } from "shared/assets";
-import { remotes, BodyColorsData, RGB, ScalesData } from "shared/remotes";
-import { getCurrentHumanoidAssets } from "client/components/shop/shopui/util/camerarotation";
-import { Players, MarketplaceService } from "@rbxts/services";
-import { palette } from "shared/constants/palette";
-import { fonts } from "client/constants/fonts";
 import { ReactiveButtonDiff } from "client/components/ui/reactive-button-animationdiff";
-import { Closebutton } from "../shopui/closebutton";
+import { useRem } from "client/hooks";
 import { Closebutsaveui } from "./closebut";
-import { sendAlert } from "client/alerts";
-import { SHOP_ALERT_MSG, SHOP_ALERT_STYLE } from "shared/constants/constant";
-/* ================= helpers ================= */
-function clamp01(x: number) {
-	return x < 0 ? 0 : x > 1 ? 1 : x;
+
+import { palette } from "shared/constants/palette";
+import { images } from "shared/assets";
+import { fonts } from "client/constants/fonts";
+import { remotes } from "shared/remotes";
+
+function safeGetDescription(): HumanoidDescription {
+	const lp = Players.LocalPlayer!;
+	const hum = lp.Character?.FindFirstChildOfClass("Humanoid");
+	if (hum) {
+		const d = hum.GetAppliedDescription();
+		if (d) return d;
+	}
+	return Players.GetHumanoidDescriptionFromUserId(lp.UserId);
 }
-function c3ToRgb255(c: Color3): RGB {
-	const r = math.floor(clamp01(c.R) * 255 + 0.5);
-	const g = math.floor(clamp01(c.G) * 255 + 0.5);
-	const b = math.floor(clamp01(c.B) * 255 + 0.5);
-	return [r, g, b];
+
+function collectAssetsFromDescription(desc: HumanoidDescription): number[] {
+	const out: number[] = [];
+
+	function add(id?: number) {
+		if (!id) return;
+		if (id <= 0) return;
+		if (out.includes(id)) return;
+		out.push(id);
+	}
+
+	const fields = [
+		"Head",
+		"Torso",
+		"LeftArm",
+		"RightArm",
+		"LeftLeg",
+		"RightLeg",
+		"Face",
+		"Shirt",
+		"Pants",
+		"GraphicTShirt",
+
+		// accessory CSV
+		"HatAccessory",
+		"HairAccessory",
+		"FaceAccessory",
+		"NeckAccessory",
+		"FrontAccessory",
+		"BackAccessory",
+		"WaistAccessory",
+
+		// layered CSV
+		"JacketAccessory",
+		"SweaterAccessory",
+		"ShortsAccessory",
+		"PantsAccessory",
+		"DressSkirtAccessory",
+		"TShirtAccessory",
+		"LeftShoeAccessory",
+		"RightShoeAccessory",
+		"EyebrowAccessory",
+		"EyelashAccessory",
+		"EarAccessory",
+	];
+
+	for (const key of fields) {
+		const [ok, value] = pcall(
+			() => (desc as unknown as Record<string, unknown>)[key]
+		);
+		if (!ok) continue;
+
+		if (typeOf(value) === "number") {
+			add(value as number);
+		} 
+		else if (typeOf(value) === "string") {
+			const str = value as string;
+			for (const raw of str.split(",")) {
+				const id = tonumber(raw);
+				if (id) add(id);
+			}
+		}
+	}
+
+	// 2) LAYERED ACCESSORIES (DynamicHead, Faces, everything)
+	for (const acc of desc.GetAccessories(true)) {
+		add(acc.AssetId);
+	}
+
+	// 3) OLD VALUES (nếu có)
+	for (const child of desc.GetDescendants()) {
+		if (child.IsA("NumberValue")) add(child.Value);
+		if (child.IsA("StringValue")) {
+			for (const raw of child.Value.split(",")) {
+				const id = tonumber(raw);
+				if (id) add(id);
+			}
+		}
+	}
+
+	return out;
 }
-function collectBodyColorsFromDesc(d: HumanoidDescription): BodyColorsData {
+
+
+type RGB = [number, number, number];
+
+function colorToRGB(c: Color3): RGB {
+	return [
+		math.floor(c.R * 255 + 0.5),
+		math.floor(c.G * 255 + 0.5),
+		math.floor(c.B * 255 + 0.5),
+	];
+}
+
+function extractBodyColors(desc: HumanoidDescription) {
 	return {
-		head: c3ToRgb255(d.HeadColor),
-		torso: c3ToRgb255(d.TorsoColor),
-		leftArm: c3ToRgb255(d.LeftArmColor),
-		rightArm: c3ToRgb255(d.RightArmColor),
-		leftLeg: c3ToRgb255(d.LeftLegColor),
-		rightLeg: c3ToRgb255(d.RightLegColor),
+		head: colorToRGB(desc.HeadColor),
+		torso: colorToRGB(desc.TorsoColor),
+		leftArm: colorToRGB(desc.LeftArmColor),
+		rightArm: colorToRGB(desc.RightArmColor),
+		leftLeg: colorToRGB(desc.LeftLegColor),
+		rightLeg: colorToRGB(desc.RightLegColor),
 	};
 }
-function collectScalesFromDesc(d: HumanoidDescription): ScalesData {
+
+function extractScales(desc: HumanoidDescription) {
 	return {
-		HeightScale: d.HeightScale,
-		WidthScale: d.WidthScale,
-		DepthScale: d.DepthScale,
-		HeadScale: d.HeadScale,
-		BodyTypeScale: d.BodyTypeScale,
-		ProportionScale: d.ProportionScale,
+		HeightScale: desc.HeightScale,
+		WidthScale: desc.WidthScale,
+		DepthScale: desc.DepthScale,
+		HeadScale: desc.HeadScale,
+		BodyTypeScale: desc.BodyTypeScale,
+		ProportionScale: desc.ProportionScale,
 	};
 }
 
-/** ---- Asset type helpers ---- */
-const typeCache = new Map<number, number>(); // assetId -> AssetTypeId
-function readAssetTypeId(id: number): number | undefined {
-	const cached = typeCache.get(id);
-	if (cached !== undefined) return cached;
 
-	const [ok, infoRaw] = pcall(() => MarketplaceService.GetProductInfo(id));
-	if (!ok || typeOf(infoRaw) !== "table") return undefined;
-	const info = infoRaw as { AssetTypeId?: number };
-	if (!info.AssetTypeId) return undefined;
+function saveOutfitNow() {
+	const desc = safeGetDescription();
 
-	typeCache.set(id, info.AssetTypeId);
-	return info.AssetTypeId;
-}
-function isValidAvatarAsset(id: number): boolean {
-	const typeId = readAssetTypeId(id);
-	if (!typeId) return false;
-	return Enum.AvatarAssetType.GetEnumItems().some((t) => t.Value === typeId);
-}
-function isLayeredTypeId(typeId: number): boolean {
-	const L = Enum.AvatarAssetType;
-	// Các loại layered clothing phổ biến
-	return (
-		typeId === L.JacketAccessory.Value ||
-		typeId === L.ShirtAccessory.Value ||
-		typeId === L.SweaterAccessory.Value ||
-		typeId === L.TShirtAccessory.Value ||
-		typeId === L.PantsAccessory.Value ||
-		typeId === L.ShortsAccessory.Value ||
-		typeId === L.DressSkirtAccessory.Value
+	const assets = collectAssetsFromDescription(desc);
+	const colors = extractBodyColors(desc);
+	const scales = extractScales(desc);
+
+	const name = `Outfit ${os.time()}`;
+
+	print("[SaveOutfit] send", name, "assets", assets);
+	remotes.server.postOutfit.fire(
+		name,
+		assets,
+		undefined, // snapshotThumb
+		colors,
+		scales,
+		undefined, // accessoryBlob
 	);
 }
 
-/** Lấy classic ids (Shirt/Pants/TShirt/Face + 8 CSV accessories) */
-function collectClassicAssetIdsFromDesc(d: HumanoidDescription): number[] {
-	const out: number[] = [];
 
-	// single id
-	if (d.Shirt > 0 && isValidAvatarAsset(d.Shirt)) out.push(d.Shirt);
-	if (d.Pants > 0 && isValidAvatarAsset(d.Pants)) out.push(d.Pants);
-	if (d.GraphicTShirt > 0 && isValidAvatarAsset(d.GraphicTShirt)) out.push(d.GraphicTShirt);
-	if (d.Face > 0 && isValidAvatarAsset(d.Face)) out.push(d.Face);
 
-	// csv accessories
-	const csvList = [
-		d.HatAccessory,
-		d.HairAccessory,
-		d.FaceAccessory,
-		d.NeckAccessory,
-		d.ShouldersAccessory,
-		d.FrontAccessory,
-		d.BackAccessory,
-		d.WaistAccessory,
-	] as const;
-
-	for (const csv of csvList) {
-		if (csv && csv !== "") {
-			for (const raw of csv.split(",")) {
-				const n = tonumber(raw);
-				if (n && n > 0 && isValidAvatarAsset(n)) out.push(n);
-			}
-		}
-	}
-	return out;
-}
-
-/** Lấy layered clothing ids qua GetAccessories(true) và lọc đúng *layered types* */
-function collectLayeredAssetIdsFromDesc(d: HumanoidDescription): number[] {
-	const out: number[] = [];
-	const arr = d.GetAccessories(true) as Array<{ AssetId?: number }>;
-	for (const a of arr) {
-		const id = a.AssetId;
-		if (typeOf(id) === "number" && (id as number) > 0) {
-			const typeId = readAssetTypeId(id as number);
-			if (typeId && isLayeredTypeId(typeId)) out.push(id as number);
-		}
-	}
-	return out;
-}
-
-/** BodyParts: Head, Torso, LeftArm, RightArm, LeftLeg, RightLeg */
-function collectBodyPartsFromDesc(d: HumanoidDescription): number[] {
-	const out: number[] = [];
-
-	if (d.Head > 0 && isValidAvatarAsset(d.Head)) out.push(d.Head);
-	if (d.Torso > 0 && isValidAvatarAsset(d.Torso)) out.push(d.Torso);
-	if (d.LeftArm > 0 && isValidAvatarAsset(d.LeftArm)) out.push(d.LeftArm);
-	if (d.RightArm > 0 && isValidAvatarAsset(d.RightArm)) out.push(d.RightArm);
-	if (d.LeftLeg > 0 && isValidAvatarAsset(d.LeftLeg)) out.push(d.LeftLeg);
-	if (d.RightLeg > 0 && isValidAvatarAsset(d.RightLeg)) out.push(d.RightLeg);
-
-	return out;
-}
-
-/** Gộp + uniq */
-function uniqMerge(...lists: number[][]): number[] {
-	const seen = new Map<number, true>();
-	const res: number[] = [];
-	for (const list of lists) {
-		for (const id of list) {
-			if (!seen.get(id)) {
-				seen.set(id, true as true);
-				res.push(id);
-			}
-		}
-	}
-	return res;
-}
-
-/* ================= component ================= */
 export function Savebuttonui(): JSX.Element {
 	const rem = useRem();
-	const [hoveredKey, setHoveredKey] = useState<string | undefined>(undefined);
-
-	function saveNow() {
-		const lp = Players.LocalPlayer!;
-
-		// assets từ viewport (nếu có), lọc hợp lệ
-		const fromViewport = getCurrentHumanoidAssets()
-			.map((a) => a.id)
-			.filter((id) => id > 0 && isValidAvatarAsset(id));
-
-		let colors: BodyColorsData | undefined;
-		let scales: ScalesData | undefined;
-		let classic: number[] = [];
-		let layered: number[] = [];
-		let bodyparts: number[] = [];
-
-		const hum = lp.Character?.FindFirstChildOfClass("Humanoid");
-		if (hum) {
-			const applied = hum.GetAppliedDescription();
-			colors = collectBodyColorsFromDesc(applied);
-			scales = collectScalesFromDesc(applied);
-			classic = collectClassicAssetIdsFromDesc(applied);
-			layered = collectLayeredAssetIdsFromDesc(applied);
-			bodyparts = collectBodyPartsFromDesc(applied); // 🔥 thêm body parts
-		} else {
-			const base = Players.GetHumanoidDescriptionFromUserId(lp.UserId);
-			colors = collectBodyColorsFromDesc(base);
-			scales = collectScalesFromDesc(base);
-			classic = collectClassicAssetIdsFromDesc(base);
-			layered = collectLayeredAssetIdsFromDesc(base);
-			bodyparts = collectBodyPartsFromDesc(base); // 🔥 thêm body parts
-		}
-
-		// Gộp tất cả
-		const assets = uniqMerge(fromViewport, classic, layered, bodyparts);
-
-		const name = `preset-${tostring(os.time())}`;
-		print(
-			`[Savebuttonui] save name=${name} count=${assets.size()} colors?=${colors !== undefined} scales?=${
-				scales !== undefined
-			}`,
-		);
-		remotes.server.postOutfit.fire(name, assets, undefined, colors, scales);
-		sendAlert({
-			...SHOP_ALERT_STYLE.saveoutfit,
-			message: SHOP_ALERT_MSG.saveoutfit,
-		});
-	}
+	const [hovered, setHovered] = useState<string | undefined>(undefined);
 
 	return (
 		<Frame
@@ -219,7 +175,7 @@ export function Savebuttonui(): JSX.Element {
 			<textlabel
 				Size={UDim2.fromScale(1, 1)}
 				BackgroundTransparency={1}
-				Text={"You want to save this outfits?"}
+				Text={"SAVE OUTFIT"}
 				TextSize={rem(2.5)}
 				TextColor3={palette.white}
 				TextXAlignment={Enum.TextXAlignment.Center}
@@ -230,15 +186,19 @@ export function Savebuttonui(): JSX.Element {
 				size={new UDim2(0, rem(5), 0, rem(5))}
 				position={new UDim2(1, 0, 1, 0)}
 				anchorPoint={new Vector2(1, 1)}
-				onHover={(isHovering) => setHoveredKey(isHovering ? "save" : undefined)}
-				onClick={saveNow}
+				onHover={(h) => setHovered(h ? "save" : undefined)}
+				onClick={saveOutfitNow} // nếu muốn debug thì đổi thành debugNow
 				backgroundTransparency={1}
 			>
 				<Image
 					image={images.ui.checked_icon}
 					size={new UDim2(1, 0, 1, 0)}
 					backgroundTransparency={1}
-					imageColor={hoveredKey === "save" ? Color3.fromRGB(0, 255, 0) : palette.white}
+					imageColor={
+						hovered === "save"
+							? Color3.fromRGB(0, 255, 0)
+							: palette.white
+					}
 				/>
 			</ReactiveButtonDiff>
 

@@ -1,4 +1,5 @@
 // src/server/players/services/avatar.services.ts
+import { Players } from "@rbxts/services";
 import { remotes, BodyColorsData, AnimationSlots } from "shared/remotes";
 import { buildDescriptionFromAssetsServer } from "shared/avatars/build-desc-from-assets";
 
@@ -59,51 +60,70 @@ function applyAnimationPack(desc: HumanoidDescription, slots?: AnimationSlots) {
 }
 
 export function initAvatarWearService() {
-	remotes.server.wearOutfit.connect((player, name, assets, hard?, colors?, scales?: ScalesData, animSlots?: AnimationSlots) => {
-		const isHard = hard === true;
-		print(
-			`[Wear] ▶ request from ${player.Name} | outfit="${name}" | assets=${(assets ?? []).size()} | ` +
-				`hard=${isHard} | colors=${colors !== undefined} | scales=${scales !== undefined} | animSlots=${animSlots !== undefined}`,
-		);
+	remotes.server.wearOutfit.connect(
+		(player, name, assets, hard?, colors?, scales?: ScalesData, animSlots?: AnimationSlots) => {
+			const isHard = hard === true;
+			const isProfile = name === "[PROFILE]";
 
-		task.spawn(() => {
-			const apply = (hum: Humanoid) => {
-				// 🔑 nếu assets rỗng → clone desc hiện tại
-				const d =
-					assets && assets.size() > 0
-						? buildDescriptionFromAssetsServer(assets)
-						: hum.GetAppliedDescription();
+			print(
+				`[Wear] ▶ request from ${player.Name} | outfit="${name}" | assets=${(assets ?? []).size()} | ` +
+					`hard=${isHard} | colors=${colors !== undefined} | scales=${scales !== undefined} | animSlots=${animSlots !== undefined}`,
+			);
 
-				applyColors(d, colors);
-				applyScales(d, scales);
-				applyAnimationPack(d, animSlots);
+			task.spawn(() => {
+				const apply = (hum: Humanoid) => {
+					let d: HumanoidDescription;
+					if (isProfile) {
+						const [okProfile, profileDesc] = pcall(() => {
+							return Players.GetHumanoidDescriptionFromUserId(player.UserId);
+						});
 
-				const [ok, err] = isHard
-					? pcall(() => hum.ApplyDescriptionReset(d))
-					: pcall(() => hum.ApplyDescription(d));
-				pcall(() => d.Destroy());
+						if (okProfile && profileDesc) {
+							d = profileDesc as HumanoidDescription;
+						} else {
+							warn(
+								`[Wear] ⚠ Failed to get profile desc for ${player.Name}, fallback GetAppliedDescription`,
+							);
+							d = hum.GetAppliedDescription();
+						}
+					} else {
+						d =
+							assets && assets.size() > 0
+								? buildDescriptionFromAssetsServer(assets)
+								: hum.GetAppliedDescription();
+					}
 
-				if (ok) {
-					print(
-						`[Wear] ✅ Applied for ${player.Name} | outfit="${name}" | ` +
-							`assets=${(assets ?? []).size()} | hard=${isHard} | colors_in=${colors !== undefined} | scales_in=${scales !== undefined} | anim_in=${animSlots !== undefined}`,
-					);
-				} else {
-					warn(`[Wear] ❌ Apply failed for ${player.Name} | outfit="${name}" | err=${tostring(err)}`);
+					applyColors(d, colors);
+					applyScales(d, scales);
+					applyAnimationPack(d, animSlots);
+
+					const [ok, err] = isHard
+						? pcall(() => hum.ApplyDescriptionReset(d))
+						: pcall(() => hum.ApplyDescription(d));
+					pcall(() => d.Destroy());
+
+					if (ok) {
+						print(
+							`[Wear] ✅ Applied for ${player.Name} | outfit="${name}" | ` +
+								`assets=${(assets ?? []).size()} | hard=${isHard} | colors_in=${colors !== undefined} | scales_in=${scales !== undefined} | anim_in=${animSlots !== undefined}`,
+						);
+					} else {
+						warn(`[Wear] ❌ Apply failed for ${player.Name} | outfit="${name}" | err=${tostring(err)}`);
+					}
+				};
+
+				const hum = player.Character?.FindFirstChildOfClass("Humanoid");
+				if (hum) apply(hum);
+				else {
+					print(`[Wear] ⏳ Waiting CharacterAdded for ${player.Name} | outfit="${name}"`);
+					const con = player.CharacterAdded.Connect((char) => {
+						const h = char?.FindFirstChildOfClass("Humanoid");
+						if (h) apply(h);
+						else warn(`[Wear] ❌ No Humanoid after CharacterAdded for ${player.Name}`);
+						con.Disconnect();
+					});
 				}
-			};
-
-			const hum = player.Character?.FindFirstChildOfClass("Humanoid");
-			if (hum) apply(hum);
-			else {
-				print(`[Wear] ⏳ Waiting CharacterAdded for ${player.Name} | outfit="${name}"`);
-				const con = player.CharacterAdded.Connect((char) => {
-					const h = char?.FindFirstChildOfClass("Humanoid");
-					if (h) apply(h);
-					else warn(`[Wear] ❌ No Humanoid after CharacterAdded for ${player.Name}`);
-					con.Disconnect();
-				});
-			}
-		});
-	});
+			});
+		},
+	);
 }

@@ -13,7 +13,7 @@ import {
 	selectCatalogVisible,
 	selectSpecialKey,
 } from "client/store/shop";
-import { getAssetTypeByPage, filterKeywordItems } from "./utils";
+import { getAssetTypeByPage, filterKeywordItems, getAssetTypeFromSubpage } from "./utils";
 import { ItemField } from "./item-field";
 
 const SCROLL_LOAD_FACTOR = 0.8;
@@ -105,7 +105,6 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 		// ==== Body (body parts or dynamic head bundle) ====
 		else if (page === "Body") {
 			if (subpage.value === "DynamicHead") {
-				// ĐÚNG: dùng BundleType.DynamicHead, không return giữa chừng
 				searchParams.IncludeOffSale = false; // muốn cả offsale thì để true
 				(searchParams as unknown as { BundleTypes?: Enum.BundleType[] }).BundleTypes = [
 					Enum.BundleType.DynamicHead,
@@ -129,33 +128,41 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 		}
 		// ==== Các page còn lại (assets) ====
 		else {
+			const assetTypeFromSub = getAssetTypeFromSubpage(subpage);
+
 			if (keyword !== "") {
-				assetType = getAssetTypeByPage(page);
+				// ưu tiên assetType từ subpage (Hat, Face, ...)
+				assetType = assetTypeFromSub ?? getAssetTypeByPage(page);
+
 				if (!assetType) {
 					setIsInitialLoading(false);
 					return;
 				}
+
 				searchParams.AssetTypes = [assetType];
 				searchParams.SearchKeyword = keyword;
 			} else if (subpage.filterType === "assetType") {
-				assetType = (Enum.AvatarAssetType as unknown as Record<string, Enum.AvatarAssetType>)[
-					subpage.value ?? ""
-				];
+				assetType = assetTypeFromSub;
+
 				if (!assetType) {
 					setIsInitialLoading(false);
 					return;
 				}
+
 				searchParams.AssetTypes = [assetType];
 				searchParams.SearchKeyword = "";
 			} else {
 				assetType = getAssetTypeByPage(page);
+
 				if (page === "Hair" && subpage.filterType === "keyword" && (subpage.value ?? "").lower() === "bangs") {
 					assetType = Enum.AvatarAssetType.FaceAccessory;
 				}
+
 				if (!assetType) {
 					setIsInitialLoading(false);
 					return;
 				}
+
 				searchParams.AssetTypes = [assetType];
 				searchParams.IncludeOffSale = true;
 				searchParams.SearchKeyword = subpage.filterType === "keyword" ? (subpage.value ?? "") : "";
@@ -184,7 +191,6 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 			let assetItems: AssetItem[];
 
 			if (isBundle) {
-				// map bundle (DynamicHead hoặc Animations)
 				assetItems = first.map((r) => {
 					const anyR = r as unknown as {
 						Id: number;
@@ -199,8 +205,10 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 						Creator: anyR.CreatorName ?? "Unknown",
 					};
 				});
+				print(assetItems)
 			} else {
 				assetItems = convertResults(first, assetType!);
+				
 				if (subpage.filterType === "keyword" && (subpage.value ?? "") !== "") {
 					assetItems = filterKeywordItems(assetItems, subpage.value!) as AssetItem[];
 				}
@@ -318,12 +326,16 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 
 					{!isInitialLoading &&
 						items.map((item, index) => {
-							// bundle thumbnail khi là animations hoặc body/dynamichead
-							const isBundleThumb =
-								page.lower() === "animations" ||
-								(page === "Body" && subpage.value === "DynamicHead");
+							const isAnimationsPage = page.lower() === "animations";
+							const isDynamicHeadPage = page === "Body" && subpage.value === "DynamicHead";
 
-							const thumbUrl = isBundleThumb
+							const bundleType = isAnimationsPage
+								? Enum.BundleType.Animations
+								: isDynamicHeadPage
+									? Enum.BundleType.DynamicHead
+									: undefined;
+
+							const thumbUrl = bundleType
 								? `rbxthumb://type=BundleThumbnail&id=${item.Id}&w=420&h=420`
 								: `rbxthumb://type=Asset&id=${item.Id}&w=420&h=420`;
 
@@ -336,9 +348,7 @@ export function Displayitem({ visible = true }: DisplayItemProps) {
 									imageUrl={thumbUrl}
 									creator={item.Creator}
 									assetType={item.AssetType as Enum.AvatarAssetType}
-									bundleType={
-										isBundleThumb ? Enum.BundleType.DynamicHead : undefined
-									}
+									bundleType={bundleType}
 									LayoutOrder={index}
 									cellW={cellW}
 									index={index}

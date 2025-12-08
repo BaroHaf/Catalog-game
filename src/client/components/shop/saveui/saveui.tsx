@@ -1,5 +1,5 @@
 // src/client/components/shop/saveui/saveui.tsx
-import React, { useEffect, useMemo, useRef, useState } from "@rbxts/react";
+import React, { useEffect, useMemo, useState } from "@rbxts/react";
 import { Frame } from "client/components/ui/frame";
 import { useRem, useStore } from "client/hooks";
 import { Image } from "client/components/ui/image";
@@ -24,77 +24,101 @@ import { SquareLoader } from "client/components/ui/loading";
 import { sendAlert } from "client/alerts";
 import { SHOP_ALERT_MSG, SHOP_ALERT_STYLE } from "shared/constants/constant";
 
-const MIN_LOADING = 0.5;
-
-// helper đếm key (thay cho Object.values)
-function countKeys<T>(map: Record<string, T>): number {
-	let c = 0;
-	for (const [,] of pairs(map)) c++;
-	return c;
+function countProps<T>(map: Record<string, T>) {
+	let n = 0;
+	for (const [,] of pairs(map)) n++;
+	return n;
 }
 
-export function SaveUI(): JSX.Element {
+export function SaveUI() {
 	const rem = useRem();
 	const store = useStore();
 
-	const [save, setSave] = useState<OutfitSave>({ outfits: {}, current: undefined });
-	const [openKey, setOpenKey] = useState<string | undefined>(undefined);
+	const [saveData, setSaveData] = useState<OutfitSave>({ outfits: {}, current: undefined });
+	const [openKey, setOpenKey] = useState<string | undefined>();
+	const [loading, setLoading] = useState(true);
 
-	const [isInitialLoading, setIsInitialLoading] = useState(false);
-	const [isBuilding, setIsBuilding] = useState(false); // ← việc nặng đang chạy trong task.spawn
-	const loadStartRef = useRef<number>(0);
-	const firstPayloadSeenRef = useRef(false);
+	// ORDER KEYS
+	const orderedKeys = useMemo(() => {
+		const arr = new Array<string>();
+		for (const [k] of pairs(saveData.outfits)) arr.push(k);
+		arr.sort((a, b) => {
+			const ta = saveData.outfits[a]?.updatedAt ?? 0;
+			const tb = saveData.outfits[b]?.updatedAt ?? 0;
+			return ta > tb;
+		});
+		return arr;
+	}, [saveData]);
 
-	const finishLoadingAfterMinDelay = () => {
-		const elapsed = time() - loadStartRef.current;
-		const remain = math.max(0, MIN_LOADING - elapsed);
-		task.delay(remain, () => setIsInitialLoading(false));
-	};
+	// HUMANOID DESCRIPTIONS
+	const [descMap, setDescMap] = useState(new Map<string, HumanoidDescription>());
 
-	/* ======================= A) OUTFITS (private) ======================= */
+	// SIGNATURE FOR BUILDING
+	const buildSignature = useMemo(() => {
+		const parts = new Array<string>();
+		for (let i = 0; i < orderedKeys.size(); i++) {
+			const k = orderedKeys[i];
+			const of = saveData.outfits[k];
+			if (!of) continue;
+
+			const assets = of.assets;
+			const c = of.colors;
+			const cSig = c
+				? `c:${c.head.join("-")}/${c.torso.join("-")}/${c.leftArm.join("-")}/${c.rightArm.join("-")}/${c.leftLeg.join("-")}/${c.rightLeg.join("-")}`
+				: "c:-";
+
+			parts.push(`${k}:${assets.join(",")}|${cSig}`);
+		}
+		return parts.join("|");
+	}, [orderedKeys, saveData]);
+
+	// ======================== OUTFITS SYNC ========================
 	useEffect(() => {
-		setIsInitialLoading(true);
-		loadStartRef.current = time();
-
 		const disconnect = remotes.client.outfitsSync.connect((payload: OutfitsSyncPayload) => {
-			// đẩy xử lý sang tick sau
 			task.defer(() => {
 				if ("full" in payload && payload.full) {
-					const nextSave = payload.data ?? { outfits: {}, current: undefined };
-					setSave(() => nextSave);
-
-					firstPayloadSeenRef.current = true;
-					if (countKeys(nextSave.outfits) === 0) finishLoadingAfterMinDelay();
+					const incoming = payload.data ?? { outfits: {}, current: undefined };
+					setSaveData(incoming);
+					if (countProps(incoming.outfits) === 0) setLoading(false);
 					return;
 				}
 
-				setSave((prev) => {
-					let localSave: OutfitSave = { ...prev, outfits: { ...prev.outfits } };
+				setSaveData((prev) => {
+					let newSave: OutfitSave = {
+						...prev,
+						outfits: { ...prev.outfits },
+					};
 
+					// REMOVE
 					if ("remove" in payload && payload.remove && payload.remove.size() > 0) {
-						for (const k of payload.remove) (localSave.outfits as Record<string, unknown>)[k] = undefined;
+						for (const key of payload.remove) {
+							(newSave.outfits as Record<string, unknown>)[key] = undefined;
+						}
 
 						const compact: Record<string, Outfit> = {};
-						for (const [k, v] of pairs(localSave.outfits as Record<string, Outfit | undefined>)) {
-							if (v !== undefined) compact[k] = v as Outfit;
+						for (const [k, v] of pairs(newSave.outfits as Record<string, Outfit | undefined>)) {
+							if (v) compact[k] = v;
 						}
-						localSave = { ...localSave, outfits: compact };
-						if (localSave.current && !compact[localSave.current]) localSave.current = undefined;
+
+						newSave = { ...newSave, outfits: compact };
+						if (newSave.current && !compact[newSave.current]) newSave.current = undefined;
 					}
 
+					// PATCH
 					if ("patch" in payload && payload.patch) {
 						const p = payload.patch;
+
 						if (p.outfits) {
-							const merged = { ...localSave.outfits };
+							const merged = { ...newSave.outfits };
 							for (const [k, v] of pairs(p.outfits)) merged[k] = v as Outfit;
-							localSave.outfits = merged;
+							newSave.outfits = merged;
 						}
-						if (p.current !== undefined) localSave.current = p.current;
+
+						if (p.current !== undefined) newSave.current = p.current;
 					}
 
-					firstPayloadSeenRef.current = true;
-					if (countKeys(localSave.outfits) === 0) finishLoadingAfterMinDelay();
-					return localSave;
+					if (countProps(newSave.outfits) === 0) setLoading(false);
+					return newSave;
 				});
 			});
 		});
@@ -103,123 +127,90 @@ export function SaveUI(): JSX.Element {
 		return () => disconnect();
 	}, []);
 
-	/* ======================= ORDER / BUILD ======================= */
-	const orderedKeys = useMemo(() => {
-		const out = new Array<string>();
-		for (const [k] of pairs(save.outfits)) out.push(k);
-		out.sort((a, b) => {
-			const ta = save.outfits[a]?.updatedAt ?? 0;
-			const tb = save.outfits[b]?.updatedAt ?? 0;
-			return ta > tb;
-		});
-		return out;
-	}, [save]);
-
-	const [descsByKey, setDescsByKey] = useState(new Map<string, HumanoidDescription>());
-
-	const buildSig = useMemo(() => {
-		const parts = new Array<string>();
-		for (let i = 0; i < orderedKeys.size(); i++) {
-			const k = orderedKeys[i];
-			const of = save.outfits[k] as Outfit | undefined;
-			const assets = of?.assets ?? [];
-			const c = of?.colors;
-			const cSig = c
-				? `c:${c.head.join("-")}/${c.torso.join("-")}/${c.leftArm.join("-")}/${c.rightArm.join("-")}/${c.leftLeg.join("-")}/${c.rightLeg.join("-")}`
-				: "c:-";
-			parts.push(`${k}:${assets.join(",")}|${cSig}`);
-		}
-		return parts.join("|");
-	}, [orderedKeys, save]);
-
-	// BUILD NẶNG đưa vào task.spawn + chia nhỏ để không block input/hover
+	// ======================== BUILD DESCRIPTIONS ========================
 	useEffect(() => {
 		let cancelled = false;
-		setIsBuilding(true);
+		setLoading(true);
 
 		task.spawn(() => {
-			const newDescs = new Map<string, HumanoidDescription>();
+			const built = new Map<string, HumanoidDescription>();
 			const keys = orderedKeys;
 
 			for (let i = 0; i < keys.size(); i++) {
 				if (cancelled) return;
 
-				const k = keys[i];
-				const of = save.outfits[k] as Outfit | undefined;
+				const key = keys[i];
+				const of = saveData.outfits[key];
 				if (!of) continue;
 
 				const desc = buildDescriptionFromOutfit(of);
-				newDescs.set(k, desc);
+				built.set(key, desc);
 
-				// yield định kỳ cho UI
 				if (i % 3 === 0) task.wait(0);
 			}
 
 			if (cancelled) {
-				for (const [, d] of newDescs) pcall(() => d.Destroy());
+				for (const [, d] of built) pcall(() => d.Destroy());
 				return;
 			}
 
-			// dọn cũ
-			for (const [k, oldDesc] of descsByKey) if (!newDescs.has(k)) pcall(() => oldDesc.Destroy());
+			for (const [key, oldDesc] of descMap) {
+				if (!built.has(key)) pcall(() => oldDesc.Destroy());
+			}
 
-			// set state ở tick sau để mượt
 			task.defer(() => {
-				setDescsByKey(newDescs);
-				setIsBuilding(false);
-				if (firstPayloadSeenRef.current) finishLoadingAfterMinDelay();
+				setDescMap(built);
+				setLoading(false);
 			});
 		});
 
 		return () => {
 			cancelled = true;
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [buildSig]);
 
-	/* ======================= B) PUBLIC (global) ======================= */
-	const [pubByName, setPubByName] = useState<Record<string, string>>({});
+	}, [buildSignature]);
+
+	// ======================== PUBLIC OUTFITS ========================
+	const [publicMap, setPublicMap] = useState<Record<string, string>>({});
 
 	useEffect(() => {
 		const lp = Players.LocalPlayer!;
 
 		const applyPayload = (payload: PublicOutfitsPayload) => {
-			// cũng defer cho nhẹ
 			task.defer(() => {
-				setPubByName((prev) => {
-					let pubMap: Record<string, string> = {};
-					for (const [nm, pid] of pairs(prev)) pubMap[nm as string] = pid as string;
+				setPublicMap((prev) => {
+					let map: Record<string, string> = {};
+					for (const [nm, id] of pairs(prev)) map[nm as string] = id as string;
 
 					if ("full" in payload && payload.full) {
-						pubMap = {};
+						map = {};
 						const data = payload.data ?? {};
 						for (const [, v] of pairs(data)) {
 							const po = v as PublicOutfit;
-							if (po.ownerId === lp.UserId) pubMap[po.name] = po.id;
+							if (po.ownerId === lp.UserId) map[po.name] = po.id;
 						}
-						return pubMap;
+						return map;
 					}
 
 					if ("patch" in payload && payload.patch) {
 						for (const [, v] of pairs(payload.patch)) {
 							const po = v as PublicOutfit;
-							if (po.ownerId === lp.UserId) pubMap[po.name] = po.id;
+							if (po.ownerId === lp.UserId) map[po.name] = po.id;
 						}
 					}
 
-					if ("remove" in payload && payload.remove && payload.remove.size() > 0) {
-						const rm: Record<string, true> = {};
-						for (const id of payload.remove) rm[id] = true as true;
+					if ("remove" in payload && payload.remove) {
+						const removed: Record<string, true> = {};
+						for (const id of payload.remove) removed[id] = true;
 
 						const filtered: Record<string, string> = {};
-						for (const [name, id] of pairs(pubMap)) {
-							const pid = id as string;
-							if (!rm[pid]) filtered[name as string] = pid;
+						for (const [nm, id] of pairs(map)) {
+							if (!removed[id as string]) filtered[nm as string] = id as string;
 						}
-						pubMap = filtered;
+						map = filtered;
 					}
 
-					return pubMap;
+					return map;
 				});
 			});
 		};
@@ -229,21 +220,21 @@ export function SaveUI(): JSX.Element {
 		return () => off();
 	}, []);
 
-	const isOutfitPublished = (k: string) => {
-		const of = save.outfits[k];
+	const isPublished = (key: string) => {
+		const of = saveData.outfits[key];
 		if (!of) return false;
-		return pubByName[of.name] !== undefined;
+		return publicMap[of.name] !== undefined;
 	};
 
-	const getOutfitPublicId = (k: string): string | undefined => {
-		const of = save.outfits[k];
+	const getPublicId = (key: string) => {
+		const of = saveData.outfits[key];
 		if (!of) return undefined;
-		return pubByName[of.name];
+		return publicMap[of.name];
 	};
 
-	/* ======================= C) Handlers ======================= */
-	function handleWear(k: string) {
-		const of = save.outfits[k];
+	// ======================== HANDLERS ========================
+	function wearOutfit(key: string) {
+		const of = saveData.outfits[key];
 		if (!of) return;
 
 		const lp = Players.LocalPlayer!;
@@ -256,7 +247,7 @@ export function SaveUI(): JSX.Element {
 			pcall(() => desc.Destroy());
 		} else {
 			const conn = lp.CharacterAdded.Connect((char) => {
-				const h = char?.FindFirstChildOfClass("Humanoid");
+				const h = char.FindFirstChildOfClass("Humanoid");
 				if (!h) return;
 				const desc = buildDescriptionFromOutfit(of);
 				pcall(() => h.ApplyDescription(desc));
@@ -270,64 +261,62 @@ export function SaveUI(): JSX.Element {
 		sendAlert({ ...SHOP_ALERT_STYLE.wearoutfit, message: SHOP_ALERT_MSG.wearoutfit });
 	}
 
-	function handlePublishToggle(k: string) {
-		const of = save.outfits[k];
+	function togglePublish(key: string) {
+		const of = saveData.outfits[key];
 		if (!of) return;
 
-		const pid = getOutfitPublicId(k);
+		const pid = getPublicId(key);
 
 		if (pid) {
 			remotes.server.unpublishOutfit.fire(pid);
-			setPubByName((prev) => {
-				const cloneMap: Record<string, string> = {};
-				for (const [nm, id] of pairs(prev)) if (nm !== of.name) cloneMap[nm as string] = id as string;
-				return cloneMap;
+			setPublicMap((prev) => {
+				const map: Record<string, string> = {};
+				for (const [nm, id] of pairs(prev)) {
+					if (nm !== of.name) map[nm as string] = id as string;
+				}
+				return map;
 			});
 		} else {
 			remotes.server.publishOutfit.fire(of.name, of.assets, of.snapshotThumb, of.colors, of.scales);
-			setPubByName((prev) => {
-				const cloneMap: Record<string, string> = {};
-				for (const [nm, id] of pairs(prev)) cloneMap[nm as string] = id as string;
-				if (!cloneMap[of.name]) cloneMap[of.name] = "_pending_";
-				return cloneMap;
+			setPublicMap((prev) => {
+				const map: Record<string, string> = {};
+				for (const [nm, id] of pairs(prev)) map[nm as string] = id as string;
+				if (!map[of.name]) map[of.name] = "_pending_";
+				return map;
 			});
 		}
 	}
 
-	function handleRemove(k: string) {
-		const of = save.outfits[k];
+	function removeOutfit(key: string) {
+		const of = saveData.outfits[key];
 		if (!of) return;
 		remotes.server.deleteOutfit.fire(of.name);
 		sendAlert({ ...SHOP_ALERT_STYLE.remove, message: SHOP_ALERT_MSG.remove });
 	}
 
-	/* ======================= D) Render ======================= */
+	// ======================== RENDER ========================
 	const cols = 5;
-	const cellSize = rem(15);
+	const cell = rem(15);
 	const gap = rem(1);
-	const sidePad = gap;
-	const scrollBar = 8;
-	const gridWidth = cols * cellSize + (cols - 1) * gap;
-
-	const isLoading = isInitialLoading || isBuilding;
+	const pad = gap;
+	const bar = 8;
+	const gridWidth = cols * cell + (cols - 1) * gap;
 
 	return (
 		<Frame
-			size={UDim2.fromOffset(gridWidth + sidePad * 2 + scrollBar, rem(40))}
-			position={new UDim2(0.5, 0, 0.5, 0)}
+			size={UDim2.fromOffset(gridWidth + pad * 2 + bar, rem(40))}
+			position={UDim2.fromScale(0.5, 0.5)}
 			anchorPoint={new Vector2(0.5, 0.5)}
 			backgroundTransparency={1}
 		>
-			{/* Panel + nội dung: CHỈ render sau khi load/build xong */}
-			<frame Size={new UDim2(1, 0, 1, 0)} BackgroundColor3={Color3.fromRGB(38, 38, 39)} ZIndex={10}>
+			<frame Size={UDim2.fromScale(1, 1)} BackgroundColor3={Color3.fromRGB(38, 38, 39)} ZIndex={10}>
 				<uicorner CornerRadius={new UDim(0, rem(2))} />
 
-				{isLoading ? (
-					// Loader nhỏ, ZIndex thấp hơn Close; không chặn input của Close
+				{loading ? (
 					<frame
 						AnchorPoint={new Vector2(0.5, 0.5)}
-						Position={new UDim2(0.5, 0, 0.5, 0)}
-						Size={new UDim2(0, rem(20), 0, rem(20))}
+						Position={UDim2.fromScale(0.5, 0.5)}
+						Size={UDim2.fromOffset(rem(20), rem(20))}
 						BackgroundTransparency={1}
 						Active={false}
 						ZIndex={11}
@@ -336,63 +325,62 @@ export function SaveUI(): JSX.Element {
 					</frame>
 				) : (
 					<scrollingframe
-						Size={new UDim2(1, 0, 1, 0)}
+						Size={UDim2.fromScale(1, 1)}
 						BackgroundTransparency={1}
-						ScrollBarThickness={scrollBar}
+						ScrollBarThickness={bar}
 						AutomaticCanvasSize={Enum.AutomaticSize.Y}
 						CanvasSize={UDim2.fromOffset(0, 0)}
 						ZIndex={11}
 					>
 						<uipadding
 							PaddingTop={new UDim(0, gap)}
-							PaddingLeft={new UDim(0, sidePad)}
-							PaddingRight={new UDim(0, sidePad)}
-							PaddingBottom={new UDim(0, 0)}
+							PaddingLeft={new UDim(0, pad)}
+							PaddingRight={new UDim(0, pad)}
 						/>
+
 						<uigridlayout
-							CellSize={UDim2.fromOffset(cellSize, cellSize)}
+							CellSize={UDim2.fromOffset(cell, cell)}
 							CellPadding={UDim2.fromOffset(gap, gap)}
+							HorizontalAlignment="Center"
 							FillDirection={Enum.FillDirection.Horizontal}
-							SortOrder={Enum.SortOrder.LayoutOrder}
-							HorizontalAlignment={"Center"}
-							StartCorner={Enum.StartCorner.TopLeft}
 						/>
 
 						{(() => {
 							const children: Record<string, React.Element> = {};
+
 							for (let i = 0; i < orderedKeys.size(); i++) {
-								const k = orderedKeys[i];
-								const desc = descsByKey.get(k);
+								const key = orderedKeys[i];
+								const desc = descMap.get(key);
 								if (!desc) continue;
 
-								const isOpen = openKey === k;
-								const published = isOutfitPublished(k);
-								const pid = getOutfitPublicId(k);
+								const open = openKey === key;
+								const published = isPublished(key);
+								const pid = getPublicId(key);
 
-								children[`of-${k}`] = (
+								children[`of-${key}`] = (
 									<Frame
 										layoutOrder={i}
-										size={UDim2.fromOffset(cellSize, cellSize)}
+										size={UDim2.fromOffset(cell, cell)}
 										backgroundTransparency={0.75}
 										clipsDescendants
 									>
 										<uicorner CornerRadius={new UDim(0, rem(2))} />
-										<CharField size={new UDim2(1, 0, 1, 0)} desc={desc} />
+										<CharField size={UDim2.fromScale(1, 1)} desc={desc} />
 
 										<Button
-											size={new UDim2(1, 0, 1, 0)}
+											size={UDim2.fromScale(1, 1)}
 											backgroundTransparency={1}
 											active
 											zIndex={3}
-											onClick={() => setOpenKey(isOpen ? undefined : k)}
+											onClick={() => setOpenKey(open ? undefined : key)}
 										/>
 
 										<DisplaySaveOpt
-											open={isOpen}
-											cellW={cellSize}
-											onWear={() => handleWear(k)}
-											onPublish={() => handlePublishToggle(k)}
-											onRemove={() => handleRemove(k)}
+											open={open}
+											cellW={cell}
+											onWear={() => wearOutfit(key)}
+											onPublish={() => togglePublish(key)}
+											onRemove={() => removeOutfit(key)}
 											published={published}
 										/>
 
@@ -401,11 +389,10 @@ export function SaveUI(): JSX.Element {
 								);
 							}
 
-							// nút "+"
 							children["plus"] = (
 								<Button
 									layoutOrder={9999}
-									size={UDim2.fromOffset(cellSize, cellSize)}
+									size={UDim2.fromOffset(cell, cell)}
 									backgroundTransparency={0.75}
 									onClick={() => {
 										store.setMenuPage("saveui");
@@ -416,7 +403,7 @@ export function SaveUI(): JSX.Element {
 										image={images.ui.plus_icon}
 										size={new UDim2(0.6, 0, 0.6, 0)}
 										anchorPoint={new Vector2(0.5, 0.5)}
-										position={new UDim2(0.5, 0, 0.5, 0)}
+										position={UDim2.fromScale(0.5, 0.5)}
 									/>
 									<uicorner CornerRadius={new UDim(0, rem(2))} />
 								</Button>

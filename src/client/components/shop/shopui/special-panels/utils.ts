@@ -1,39 +1,58 @@
-// src/client/components/shop/shopui/special-panels/utils.ts
+const HUE_COLORS: Color3[] = [
+	Color3.fromRGB(255, 0, 0),
+	Color3.fromRGB(255, 128, 0),
+	Color3.fromRGB(255, 255, 0),
+	Color3.fromRGB(128, 255, 0),
+	Color3.fromRGB(0, 255, 0),
+	Color3.fromRGB(0, 255, 128),
+	Color3.fromRGB(0, 255, 255),
+	Color3.fromRGB(0, 128, 255),
+	Color3.fromRGB(0, 0, 255),
+	Color3.fromRGB(128, 0, 255),
+	Color3.fromRGB(255, 0, 255),
+	Color3.fromRGB(255, 0, 128),
 
-/**
- * Tạo gradient Hue 0-360 độ (HSV) -> ColorSequence
- */
+	Color3.fromRGB(255, 224, 189),
+	Color3.fromRGB(241, 194, 125),
+	Color3.fromRGB(224, 172, 105),
+	Color3.fromRGB(198, 134, 66),
+	Color3.fromRGB(141, 85, 36),
+];
+
+function getHueColorFromPct(hPct: number): Color3 {
+	const n = HUE_COLORS.size();
+	if (n === 0) return Color3.fromRGB(255, 255, 255);
+
+	const t = math.clamp(hPct, 0, 0.999999);
+	const idx = math.floor(t * n);
+	return HUE_COLORS[idx];
+}
+
 export function makeHueGradient(): ColorSequence {
-	const steps = 7; // đủ để tạo rainbow mượt
 	const keypoints: ColorSequenceKeypoint[] = [];
 
-	for (let i = 0; i <= steps; i++) {
-		const t = i / steps;
-		const color = Color3.fromHSV(t, 1, 1);
-		keypoints.push(new ColorSequenceKeypoint(t, color));
+	for (let i = 0; i < HUE_COLORS.size(); i++) {
+		const t = i / (HUE_COLORS.size() - 1);
+		keypoints.push(new ColorSequenceKeypoint(t, HUE_COLORS[i]));
 	}
 
 	return new ColorSequence(keypoints);
 }
 
-/**
- * Tạo gradient theo Value (đen -> màu theo Hue)
- */
 export function makeValueGradientFromHue(hPct: number): ColorSequence {
-	const h = math.clamp(hPct, 0, 1);
-	const hueColor = Color3.fromHSV(h, 1, 1);
+	const hueColor = getHueColorFromPct(hPct);
 	return new ColorSequence([
-		new ColorSequenceKeypoint(0, new Color3(0, 0, 0)), // đen
-		new ColorSequenceKeypoint(1, hueColor),            // màu theo Hue
+		new ColorSequenceKeypoint(0, new Color3(0, 0, 0)),
+		new ColorSequenceKeypoint(1, hueColor),
 	]);
 }
 
-/** Tiện ích HSV -> Color3 (nếu cần dùng nơi khác) */
 export function hsvToColor3(h: number, s: number, v: number): Color3 {
 	return Color3.fromHSV(h, s, v);
 }
 
-/** Tiện ích lấy màu từ 2 slider (Hue% và Value%) */
 export function colorFromSliders(h: number, v: number): Color3 {
-	return Color3.fromHSV(math.clamp(h, 0, 1), 1, math.clamp(v, 0, 1));
+	const base = getHueColorFromPct(h);
+	const [bh, bs, _bv] = base.ToHSV();
+	return Color3.fromHSV(bh, bs, math.clamp(v, 0, 1));
 }

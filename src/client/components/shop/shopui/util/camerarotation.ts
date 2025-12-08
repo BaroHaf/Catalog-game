@@ -3,10 +3,8 @@ import { Players, ReplicatedStorage, MarketplaceService, AvatarEditorService } f
 import { sendAlert } from "client/alerts";
 import { SHOP_ALERT_MSG, SHOP_ALERT_STYLE } from "shared/constants/constant";
 import { remotes, type OutfitDelta } from "shared/remotes";
+import { colorFromSliders } from "../special-panels/utils";
 
-/* =========================
-   0) BUS SỰ KIỆN UI (tuỳ dùng)
-   ========================= */
 const AssetsChangedEvent = new Instance("BindableEvent");
 export function onAssetsChanged(callback: () => void): RBXScriptConnection {
 	return AssetsChangedEvent.Event.Connect(callback);
@@ -98,10 +96,6 @@ const ANIM_KEYS = [
 ] as const;
 type AnimKey = (typeof ANIM_KEYS)[number];
 
-/* =========================
-   2) INTERNAL HELPERS
-   ========================= */
-
 type PlayersWithAsync = Players & {
 	GetHumanoidDescriptionFromUserIdAsync: (userId: number) => HumanoidDescription;
 };
@@ -181,7 +175,6 @@ export function playIdleOnHumanoid(h: Humanoid) {
 
 // === Stop tất cả & play lại Idle gốc đã snapshot ===
 export function replayPlayerIdleAll(fade = 0.12) {
-	// nếu vì lý do nào đó chưa snapshot, thử lấy lại từ Animate
 	if (!InitialIdleAnimId || InitialIdleAnimId === "") {
 		const again = getAnimId(Players.LocalPlayer?.Character?.FindFirstChild("Animate"), "idle");
 		if (again && again !== "") InitialIdleAnimId = again;
@@ -236,12 +229,8 @@ function mergedOpts(overrides?: ViewportOpts) {
 	return { ...DEFAULT_VIEWPORT_OPTS, ...(overrides ?? {}) };
 }
 
-/* =========================
-   3) GLOBAL REGISTRY + HOOK BUS
-   ========================= */
-
-let Targets: Humanoid[] = []; // các humanoid trong mọi viewport
-let Primary: Humanoid | undefined; // humanoid “chuẩn” để đọc/ghi desc
+let Targets: Humanoid[] = [];
+let Primary: Humanoid | undefined;
 
 function registerHumanoid(h: Humanoid) {
 	Targets.push(h);
@@ -415,7 +404,6 @@ const SCALE_RAW_KEYS = [
 ] as const;
 type ScaleRawKey = (typeof SCALE_RAW_KEYS)[number];
 
-// Snapshot: clothes(numbers), accessories(csv), body(numbers), colors(Color3), scales(numbers)
 // Snapshot: clothes(numbers), accessories(csv), body(numbers), colors(Color3), scales(numbers), layered(list)
 type DescSnapshot = Partial<Record<(typeof CLOTH_KEYS)[number], number>> &
 	Partial<Record<(typeof ACCESSORY_KEYS)[number], string>> &
@@ -646,7 +634,6 @@ function applySnapshotToHumanoid(h: Humanoid, snap: DescSnapshot, hard = false) 
 /** Broadcast một desc (đã chỉnh) tới tất cả humanoid & cập nhật cache hợp nhất */
 function broadcastApplyFrom(srcDesc: HumanoidDescription, hard = false, animation = false) {
 	persistFromDesc(srcDesc);
-	print(animation);
 	for (let i = 0; i < Targets.size(); i++) {
 		const hum = Targets[i];
 		applyClothesBodyAndAccessories(hum, srcDesc, hard);
@@ -734,7 +721,6 @@ export function tryOnAsset(assetType: Enum.AvatarAssetType, assetId: number, opt
 		const key = getHDKeyForAssetType(assetType);
 		if (!key) return;
 
-		// verify asset type khớp field dự kiến (tránh nhầm Head -> Hat)
 		const resolved = getAssetType(assetId);
 		const expected = (FIELD_EXPECTED_TYPES[key] ?? []) as Enum.AvatarAssetType[];
 		if (resolved && expected.size() > 0 && !expected.includes(resolved)) {
@@ -744,11 +730,9 @@ export function tryOnAsset(assetType: Enum.AvatarAssetType, assetId: number, opt
 
 		let payload: OutfitDelta;
 
-		// single-number (clothes + body)
 		if (CLOTH_KEYS.includes(key as never) || BODY_KEYS.includes(key as never)) {
 			(desc as unknown as Record<string, number>)[key] = assetId;
 
-			// nếu là BODY, remove id này khỏi mọi CSV accessories (chống trùng)
 			if (BODY_KEYS.includes(key as never)) {
 				for (let i = 0; i < ACCESSORY_KEYS.size(); i++) {
 					const ak = ACCESSORY_KEYS[i] as string;
@@ -1015,12 +999,6 @@ export function isViewportReady() {
 	return Targets.size() > 0;
 }
 
-export function colorFromSliders(huePct: number, valPct: number) {
-	const h = math.clamp(huePct, 0, 1);
-	const v = math.clamp(valPct, 0, 1);
-	return Color3.fromHSV(h, 1, v);
-}
-
 export function getCurrentBodyColor(): Color3 | undefined {
 	if (DescCache?.TorsoColor) return DescCache.TorsoColor;
 	const hum = getAnyTarget();
@@ -1212,9 +1190,9 @@ export function applyDescriptionToAllTargets(desc: HumanoidDescription, hard = f
 	broadcastApplyFrom(desc, hard, animation);
 }
 
-/** Từ 2 slider (hue 0..1, value 0..1) sinh Color3 rồi áp vào phần body chọn. */
 export function applyBodyColorFromSliders(huePct: number, valPct: number, region?: BodyRegion, snapToBrick = false) {
-	return applyBodyColor(colorFromSliders(huePct, valPct), region, snapToBrick);
+	const color = colorFromSliders(huePct, valPct);
+	return applyBodyColor(color, region, snapToBrick);
 }
 
 /* =========================
@@ -1315,13 +1293,7 @@ function collectAssetIdsFromSnapshot(snap: DescSnapshot): number[] {
 	return out;
 }
 
-export function getCurrentHumanoidAssets(): SimpleAssetInfo[] {
-	const hum = getPrimaryHumanoid();
-	if (!hum) return [];
-
-	const d = hum.GetAppliedDescription();
-
-	// Thu thập ID nhanh với bảng boolean (thay Map)
+export function getCurrentHumanoidAssetsFromDesc(desc: HumanoidDescription, resolveNames = true): SimpleAssetInfo[] {
 	const seen: { [id: number]: true } = {};
 	const ids: number[] = [];
 
@@ -1332,60 +1304,68 @@ export function getCurrentHumanoidAssets(): SimpleAssetInfo[] {
 		}
 	};
 
-	// 1) Classic + Accessories CSV + BodyPart
-	const rigidIds = collectAssetIdsFromDesc(d);
+	const rigidIds = collectAssetIdsFromDesc(desc);
 	for (let i = 0; i < rigidIds.size(); i++) {
 		pushId(rigidIds[i]);
 	}
 
-	// 2) Layered (Jacket/Sweater/Shorts/Skirt/Shoes)
-	const layeredIds = collectLayeredIdsFromDesc(d);
+	const layeredIds = collectLayeredIdsFromDesc(desc);
 	for (let i = 0; i < layeredIds.size(); i++) {
 		pushId(layeredIds[i]);
 	}
 
-	// 3) Animation Slots: không tạo mảng tạm, đọc trực tiếp
-	//    Đồng thời lưu prefix slot để ghép tên sau (tránh gọi getAssetName 2 lần)
 	const slotPrefixById: { [id: number]: string } = {};
 
-	const walk = d.WalkAnimation;
+	const walk = desc.WalkAnimation;
 	if (typeOf(walk) === "number" && walk > 0) {
 		pushId(walk);
 		slotPrefixById[walk] = "Walk";
 	}
-	const run = d.RunAnimation;
+	const run = desc.RunAnimation;
 	if (typeOf(run) === "number" && run > 0) {
 		pushId(run);
 		slotPrefixById[run] = "Run";
 	}
-	const idle = d.IdleAnimation;
+	const idle = desc.IdleAnimation;
 	if (typeOf(idle) === "number" && idle > 0) {
 		pushId(idle);
 		slotPrefixById[idle] = "Idle";
 	}
-	const jump = d.JumpAnimation;
+	const jump = desc.JumpAnimation;
 	if (typeOf(jump) === "number" && jump > 0) {
 		pushId(jump);
 		slotPrefixById[jump] = "Jump";
 	}
-	const fall = d.FallAnimation;
+	const fall = desc.FallAnimation;
 	if (typeOf(fall) === "number" && fall > 0) {
 		pushId(fall);
 		slotPrefixById[fall] = "Fall";
 	}
-	const swim = d.SwimAnimation;
+	const swim = desc.SwimAnimation;
 	if (typeOf(swim) === "number" && swim > 0) {
 		pushId(swim);
 		slotPrefixById[swim] = "Swim";
 	}
-	const climb = d.ClimbAnimation;
+	const climb = desc.ClimbAnimation;
 	if (typeOf(climb) === "number" && climb > 0) {
 		pushId(climb);
 		slotPrefixById[climb] = "Climb";
 	}
 
-	// 4) Resolve tên 1 lần duy nhất cho mỗi id
 	const out = new Array<SimpleAssetInfo>(ids.size());
+
+	// FAST MODE: không gọi getAssetName (tránh delay)
+	if (!resolveNames) {
+		for (let i = 0; i < ids.size(); i++) {
+			const id = ids[i];
+			const prefix = slotPrefixById[id];
+			const base = `#${id}`; // placeholder, sau này muốn thì resolve tên sau
+			out[i] = prefix ? { id, name: `[${prefix}] ${base}` } : { id, name: base };
+		}
+		return out;
+	}
+
+	// MODE CŨ: resolve tên đầy đủ (chậm hơn)
 	for (let i = 0; i < ids.size(); i++) {
 		const id = ids[i];
 		const base = getAssetName(id);
@@ -1394,6 +1374,15 @@ export function getCurrentHumanoidAssets(): SimpleAssetInfo[] {
 	}
 
 	return out;
+}
+
+export function getCurrentHumanoidAssets(desc?: HumanoidDescription): SimpleAssetInfo[] {
+	if (desc) return getCurrentHumanoidAssetsFromDesc(desc); // giữ behavior cũ (resolveNames = true)
+	const hum = getPrimaryHumanoid();
+	if (!hum) return [];
+
+	const d = hum.GetAppliedDescription();
+	return getCurrentHumanoidAssetsFromDesc(d);
 }
 
 const FIELD_TO_ASSETTYPE: Partial<Record<string, Enum.AvatarAssetType>> = {
@@ -1465,7 +1454,6 @@ export function getWornAssetTypeForId(assetId: number): Enum.AvatarAssetType | u
 const c3ToRGB = (c: Color3) =>
 	[math.floor(c.R * 255), math.floor(c.G * 255), math.floor(c.B * 255)] as [number, number, number];
 
-// Chỉ dùng API sync hợp lệ trên Client. Nếu lỗi, fallback sang desc đang mặc trên nhân vật thật.
 function getProfileDescriptionOf(userId: number): HumanoidDescription {
 	const [ok, desc] = pcall(() => Players.GetHumanoidDescriptionFromUserId(userId));
 	if (ok && desc) return desc;
@@ -1480,25 +1468,16 @@ function getProfileDescriptionOf(userId: number): HumanoidDescription {
 export function resetcharacter(hard = true) {
 	const lp = Players.LocalPlayer!;
 	const userId = lp.UserId;
-
-	// 1) Lấy desc của PROFILE (không phải bộ đang try-on trong viewport)
 	const desc = getProfileDescriptionOf(userId);
 
-	// 2) Preview lên tất cả viewport (đồng thời cập nhật cache)
 	broadcastApplyFrom(desc, hard);
 }
-// Preview tất cả viewport + gửi server wearOutfit(name, assets, hard, colors)
 export function resetToProfileOutfit(hard = true) {
 	const lp = Players.LocalPlayer!;
 	const userId = lp.UserId;
 
-	// 1) Lấy desc của PROFILE (không phải bộ đang try-on trong viewport)
 	const desc = getProfileDescriptionOf(userId);
-
-	// 2) Preview lên tất cả viewport (đồng thời cập nhật cache)
 	broadcastApplyFrom(desc, hard);
-
-	// 3) Chuẩn hoá body colors -> RGB object
 	const colors = {
 		head: c3ToRGB(desc.HeadColor),
 		torso: c3ToRGB(desc.TorsoColor),
@@ -1508,7 +1487,6 @@ export function resetToProfileOutfit(hard = true) {
 		rightLeg: c3ToRGB(desc.RightLegColor),
 	};
 
-	// 4) Scales từ profile (optional gửi lên server)
 	const scales = {
 		HeightScale: desc.HeightScale,
 		WidthScale: desc.WidthScale,
@@ -1518,32 +1496,15 @@ export function resetToProfileOutfit(hard = true) {
 		ProportionScale: desc.ProportionScale,
 	};
 
-	// 5) Asset IDs từ desc
 	const assets = collectAssetIdsFromDesc(desc);
-
-	for (const id of assets) {
-		const [ok, infoRaw] = pcall(() => MarketplaceService.GetProductInfo(id));
-		if (!ok || typeOf(infoRaw) !== "table") continue;
-		const info = infoRaw as unknown as { Name?: string; AssetTypeId?: number };
-		const typeName = Enum.AssetType.GetEnumItems().find((x) => x.Value === (info.AssetTypeId ?? -1))?.Name;
-
-		print(`[Reset][Client] send id=${id} type=${typeName} name=${info.Name}`);
-	}
-
 	remotes.server.wearOutfit.fire("[PROFILE]", assets, hard, colors, scales);
-
-	// 6) Gửi server: colors + scales đều optional, server sẽ clamp & apply nếu có
+	print("reset");
 	sendAlert({
 		...SHOP_ALERT_STYLE.resetoutfit,
 		message: SHOP_ALERT_MSG.resetoutfit,
 	});
 }
 
-/* =========================
-   EMOTE UGC PLAYBACK (CLIENT)
-   ========================= */
-
-// Cache emoteId -> AnimationId
 const EmoteAnimIdCache = new Map<number, string>();
 // Mỗi humanoid chỉ giữ 1 track emote đang chạy để dừng dễ
 const EmoteTrackByHumanoid = new WeakMap<Humanoid, AnimationTrack>();
@@ -1671,6 +1632,27 @@ export function stopEmote(fadeOut = 0.15) {
 	});
 	remotes.server.stopEmote.fire(fadeOut);
 }
+export function isEmoteApplied(emoteAssetId: number): boolean {
+	if (emoteAssetId <= 0) return false;
+
+	const hum = getPrimaryHumanoid();
+	if (!hum) return false;
+
+	const track = EmoteTrackByHumanoid.get(hum);
+	if (!track || !track.IsPlaying) return false;
+
+	const anim = track.Animation;
+	if (!anim || !anim.IsA("Animation")) return false;
+
+	const cachedAnimId = EmoteAnimIdCache.get(emoteAssetId);
+	if (!cachedAnimId) {
+		const fallback = `rbxassetid://${emoteAssetId}`;
+		return anim.AnimationId === fallback;
+	}
+
+	return anim.AnimationId === cachedAnimId;
+}
+
 function collectLayeredIdsFromDesc(d: HumanoidDescription): number[] {
 	const out = new Array<number>();
 	const accs = d.GetAccessories(true) as Array<AccessoryInfo>;
@@ -1723,7 +1705,6 @@ async function fetchHeadFromBundle(bundleId: number): Promise<number | undefined
 	if (!items) return undefined;
 
 	for (const item of items) {
-		// Giả sử cái “Head” là loại DynamicHead hoặc tên có “Head”
 		if (getAssetType(item.Id) === Enum.AvatarAssetType.DynamicHead) {
 			return item.Id;
 		}
@@ -1763,4 +1744,33 @@ export function takeOffBundleHead(bundleId?: number) {
 			remotes.server.outfitDelta.fire({ Head: 0, hard: true } as OutfitDelta);
 		}
 	}
+}
+export function takeOffHeadById(headId: number) {
+	const hum = getAnyTarget();
+	if (!hum || headId <= 0) return;
+
+	const desc = hum.GetAppliedDescription();
+	const currentHead = desc.Head as number;
+
+	if (currentHead !== headId) return;
+
+	desc.Head = 0;
+	broadcastApplyFrom(desc, true);
+	remotes.server.outfitDelta.fire({ Head: 0, hard: true } as OutfitDelta);
+}
+
+export function isAppliedDynamicHead(headAssetId: number): boolean {
+	const hum = getAnyTarget();
+	if (!hum || headAssetId <= 0) return false;
+
+	const desc = hum.GetAppliedDescription();
+	const currentHead = desc.Head as number;
+
+	return currentHead === headAssetId;
+}
+export async function isDynamicHeadBundleApplied(bundleId: number): Promise<boolean> {
+	const headId = await fetchHeadFromBundle(bundleId);
+	if (!headId) return false;
+
+	return isAppliedDynamicHead(headId);
 }

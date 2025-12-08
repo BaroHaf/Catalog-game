@@ -191,7 +191,6 @@ export function buildDescriptionFromOutfit(of: Outfit): HumanoidDescription {
 	applyScalesFromPreset(desc, (of as { scales?: ScalesData }).scales, base);
 	resetClassicSlots(desc);
 
-	// buckets
 	const csvBuckets: Record<CsvAccKey, number[]> = {
 		HatAccessory: [],
 		HairAccessory: [],
@@ -203,31 +202,37 @@ export function buildDescriptionFromOutfit(of: Outfit): HumanoidDescription {
 		WaistAccessory: [],
 	};
 	const layeredList: { AssetId: number; AccessoryType: Enum.AccessoryType; Order?: number }[] = [];
-
 	let order = 50;
 
 	for (const id of of.assets ?? []) {
-		if (!id || id <= 0 || !isValidAvatarAsset(id)) continue;
-		const typeId = readAssetTypeId(id)!;
+		if (!id || id <= 0) continue;
 
-		// 1) layered
+		const typeId = readAssetTypeId(id);
+		if (!typeId) continue;
+
+		// ==== BODY PART / HEAD (DynamicHead + Head) ====
+		const A = Enum.AssetType;
+		if (typeId === A.DynamicHead.Value || typeId === A.Head.Value) {
+			desc.Head = id;
+			continue;
+		}
+		if (typeId === A.Torso.Value) { desc.Torso = id; continue; }
+		if (typeId === A.LeftArm.Value) { desc.LeftArm = id; continue; }
+		if (typeId === A.RightArm.Value) { desc.RightArm = id; continue; }
+		if (typeId === A.LeftLeg.Value) { desc.LeftLeg = id; continue; }
+		if (typeId === A.RightLeg.Value) { desc.RightLeg = id; continue; }
+
+		// layered
 		if (isLayeredTypeId(typeId)) {
 			const at = toAccessoryType(typeId);
 			if (at !== undefined) layeredList.push({ AssetId: id, AccessoryType: at, Order: order++ });
 			continue;
 		}
 
-		// 2) bodyparts (chỉ set các field chắc chắn có trong rbxts types của bạn)
-		if (typeId === Enum.AssetType.Head.Value) { desc.Head = id; continue; }
-		if (typeId === Enum.AssetType.Torso.Value) { desc.Torso = id; continue; }
-		if (typeId === Enum.AssetType.LeftArm.Value) { desc.LeftArm = id; continue; }
-		if (typeId === Enum.AssetType.RightArm.Value) { desc.RightArm = id; continue; }
-		if (typeId === Enum.AssetType.LeftLeg.Value) { desc.LeftLeg = id; continue; }
-		if (typeId === Enum.AssetType.RightLeg.Value) { desc.RightLeg = id; continue; }
-
-		// 3) classic + rigid
+		// classic / accessory theo AvatarAssetType
 		const assetType = Enum.AvatarAssetType.GetEnumItems().find((t) => t.Value === typeId);
 		if (!assetType) continue;
+
 		const key = getHDKeyForAssetType(assetType);
 		if (!key) continue;
 
@@ -248,10 +253,8 @@ export function buildDescriptionFromOutfit(of: Outfit): HumanoidDescription {
 		}
 	}
 
-	// CSV apply
 	for (const k of CSV_KEYS) setCsv(desc, k, csvBuckets[k]);
 
-	// layered apply (includeRigidAccessories = false để tránh lẫn rigid)
 	if (layeredList.size() > 0) {
 		desc.SetAccessories(layeredList as unknown[], false);
 	}

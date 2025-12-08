@@ -79,8 +79,6 @@ export async function addCart(player: Player, assetId: number) {
 
   const key = tostring(assetId);
   if (cur.cart[key]) return; // đã có sẵn
-
-  // lấy info chính thức từ Roblox
   let info: unknown;
   const ok = pcall(() => {
     info = MarketplaceService.GetProductInfo(assetId, Enum.InfoType.Asset) as unknown;

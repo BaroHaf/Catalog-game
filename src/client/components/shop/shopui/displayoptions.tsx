@@ -8,7 +8,7 @@ import { useRem } from "client/hooks";
 import { fonts } from "client/constants/fonts";
 import { palette } from "shared/constants/palette";
 import { useMotion } from "@rbxts/pretty-react-hooks";
-import { isAssetApplied, takeOffAsset, tryOnAsset, tryOnEmote, stopEmote } from "./util/camerarotation";
+import { isAssetApplied, takeOffAsset, tryOnAsset, tryOnEmote, stopEmote, isEmoteApplied } from "./util/camerarotation";
 import { MarketplaceService, Players } from "@rbxts/services";
 import { addToCart, getCartItems, subscribeCart } from "./util/savedata";
 import { useSelector } from "@rbxts/react-reflex";
@@ -24,7 +24,6 @@ import {
 	debugDumpLayered,
 } from "./util/layered";
 
-// Animations util (giữ nguyên mấy cái bạn đang dùng)
 import {
 	safeTryOnBundle,
 	safeTakeOffBundle,
@@ -34,21 +33,26 @@ import {
 	isAnimationBundleType,
 } from "./util/animations";
 
-// ✅ DynamicHead: chỉ import 2 hàm bạn đang có trong camera
-import { tryOnBundleHead, takeOffBundleHead } from "./util/camerarotation";
+import {
+	tryOnBundleHead,
+	takeOffBundleHead,
+	isAppliedDynamicHead,
+	isDynamicHeadBundleApplied,
+	takeOffHeadById,
+} from "./util/camerarotation";
 
 const MAX_CART = 20;
 
 interface Props {
 	open: boolean;
 	assetType: Enum.AvatarAssetType;
-	assetId: number;   // bundleId nếu là bundle
+	assetId: number;
 	cellW: number;
 	assetName: string;
 	bundleType?: Enum.BundleType;
 }
 
-type UIMode = "singleAnim" | "animPack" | "normal";
+type UIMode = "singleAnim" | "animPack" | "singleHead" | "headBundle" | "normal" | "emote";
 
 export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bundleType }: Props) {
 	const rem = useRem();
@@ -56,7 +60,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 	const pageLower = page.lower();
 	const subpage = useSelector(selectSubpage) as { filterType?: string; value?: string };
 
-	// ===== Responsive tokens =====
 	const clamp = (v: number, lo: number, hi: number) => math.clamp(v, lo, hi);
 	const labelSize = math.clamp(math.floor(cellW * 0.085), 5, 12);
 	const iconPx = clamp(math.floor(cellW * 0.22), rem(4), rem(7));
@@ -64,45 +67,49 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 	const gapPx = clamp(math.floor(cellW * 0.06), rem(0.6), rem(1.2));
 	const mainBtnWidthScale = clamp(0.58 + (cellW / 400) * 0.08, 0.58, 0.7);
 
-	// Body > DynamicHead?
 	const isDynamicHead = pageLower === "body" && subpage?.value === "DynamicHead";
-
-	// mount/unmount
 	const [shouldRender, setShouldRender] = useState(open);
 	const [y, yMotion] = useMotion(1);
 	const [a, aMotion] = useMotion(1);
 
-	// trạng thái
 	const [equipped, setEquipped] = useState(false);
 	const [mode, setMode] = useState<UIMode>("normal");
 
-	// giỏ hàng
 	const [cartCount, setCartCount] = useState(0);
 	const [inCart, setInCart] = useState(false);
 
-	// ===== Đồng bộ equipped + mode (theo ITEM) =====
 	useEffect(() => {
 		task.spawn(() => {
-			// Nhánh DynamicHead: UI coi như "normal".
-			// Equipped sẽ toggle theo click (đơn giản, không cần fetch headId)
-			if (isDynamicHead) {
-				setMode("normal");
+			if (isAppliedDynamicHead(assetId)) {
+				setMode("singleHead");
+				setEquipped(true);
 				return;
 			}
 
-			// 1) Single animation đang gắn slot → singleAnim
+			if (bundleType === Enum.BundleType.DynamicHead) {
+				setMode("headBundle");
+				isDynamicHeadBundleApplied(assetId).then((applied) => {
+					if (!applied) return;
+					setEquipped(true);
+				});
+				return;
+			}
+			if (assetType === Enum.AvatarAssetType.EmoteAnimation){
+				setMode("emote");
+				print(isEmoteApplied(assetId))
+				setEquipped(isEmoteApplied(assetId));
+				return;
+			}
 			if (isSingleAnimationApplied(assetId)) {
 				setMode("singleAnim");
 				setEquipped(true);
 				return;
 			}
-			// 2) Animation bundle → animPack
 			if (isAnimationBundleType(bundleType)) {
 				setMode("animPack");
 				setEquipped(isAnimationBundleApplied(assetId));
 				return;
 			}
-			// 3) Còn lại → normal
 			setMode("normal");
 			const eq = isLayeredAvatarAssetType(assetType)
 				? isLayeredApplied(assetType, assetId)
@@ -111,7 +118,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 		});
 	}, [isDynamicHead, bundleType, assetType, assetId, open]);
 
-	// --- đồng bộ giỏ (realtime) ---
 	useEffect(() => {
 		const refresh = () => {
 			const list = getCartItems();
@@ -135,30 +141,25 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 	const FADE_IN = { tension: 180, friction: 22, mass: 1 };
 	const FADE_OUT = { tension: 180, friction: 20, mass: 1 };
 
-	// --- MUA ---
 	const promptPurchase = () => {
-		// Animations bundle
 		if (mode === "animPack") {
 			const [ok, err] = pcall(() => MarketplaceService.PromptBundlePurchase(Players.LocalPlayer!, assetId));
 			if (!ok) warn("PromptBundlePurchase (animations) failed:", err);
 			return;
 		}
 
-		// Body > DynamicHead → mua bundle trực tiếp
 		if (isDynamicHead) {
 			const [ok, err] = pcall(() => MarketplaceService.PromptBundlePurchase(Players.LocalPlayer!, assetId));
 			if (!ok) warn("PromptBundlePurchase (body/dynamicHead) failed:", err);
 			return;
 		}
 
-		// Page khác (asset lẻ)
 		if (pageLower !== "body") {
 			const [ok, err] = pcall(() => MarketplaceService.PromptPurchase(Players.LocalPlayer!, assetId));
 			if (!ok) warn("PromptPurchase failed:", err);
 			return;
 		}
 
-		// Body subpage khác → resolve bundleId
 		let handled = false;
 		const disconnect = remotes.client.bundleResolved.connect((aid, bundleId) => {
 			if (aid !== assetId || handled) return;
@@ -176,7 +177,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 		remotes.server.resolveBundleFromAssetId.fire(assetId);
 	};
 
-	// --- Mount/Unmount transition ---
 	useEffect(() => {
 		if (open) {
 			if (!shouldRender) setShouldRender(true);
@@ -196,25 +196,31 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 	const pos = y.map((v: number) => new UDim2(0, 0, v, 0));
 	const fade = a.map((x: number) => math.clamp(x, 0, 1));
 
-	// --- TRY ON / TAKE OFF ---
 	const onTryOn = () => {
 		const itemName = assetName;
-
-		// ✅ Body > DynamicHead: chỉ mặc/gỡ Head từ bundle
-		if (isDynamicHead) {
+		if (mode === "headBundle") {
 			if (equipped) {
-				takeOffBundleHead(assetId); // gỡ đúng head của bundle (hoặc pass undefined để gỡ head hiện tại)
+				takeOffBundleHead(assetId);
 				setEquipped(false);
 				sendAlert({ ...SHOP_ALERT_STYLE.takeOff, message: SHOP_ALERT_MSG.takeOff(itemName) });
 			} else {
-				tryOnBundleHead(assetId); // chỉ áp Head từ bundle
+				tryOnBundleHead(assetId);
+				setEquipped(true);
+				sendAlert({ ...SHOP_ALERT_STYLE.wear, message: SHOP_ALERT_MSG.wear(itemName) });
+			}
+			return;
+		} else if (mode === "singleHead") {
+			if (equipped) {
+				takeOffHeadById(assetId);
+				setEquipped(false);
+				sendAlert({ ...SHOP_ALERT_STYLE.takeOff, message: SHOP_ALERT_MSG.takeOff(itemName) });
+			} else {
+				tryOnAsset(Enum.AvatarAssetType.DynamicHead, assetId, { replaceList: true });
 				setEquipped(true);
 				sendAlert({ ...SHOP_ALERT_STYLE.wear, message: SHOP_ALERT_MSG.wear(itemName) });
 			}
 			return;
 		}
-
-		// SINGLE ANIMATION → chỉ take off
 		if (mode === "singleAnim") {
 			if (equipped) {
 				takeOffSingleAnimation(assetId);
@@ -223,8 +229,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 			}
 			return;
 		}
-
-		// ANIMATION BUNDLE
 		if (mode === "animPack") {
 			if (equipped) {
 				safeTakeOffBundle();
@@ -237,8 +241,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 			}
 			return;
 		}
-
-		// EMOTE
 		if (assetType === Enum.AvatarAssetType.EmoteAnimation) {
 			if (equipped) {
 				stopEmote(0.12);
@@ -251,8 +253,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 			}
 			return;
 		}
-
-		// LAYERED
 		if (isLayeredAvatarAssetType(assetType)) {
 			if (equipped) {
 				takeOffLayered(assetType, assetId);
@@ -268,7 +268,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 			return;
 		}
 
-		// CLASSIC
 		if (equipped) {
 			takeOffAsset(assetType, assetId);
 			setEquipped(false);
@@ -280,7 +279,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 		}
 	};
 
-	// --- Add to cart ---
 	const canAdd = cartCount < MAX_CART && !inCart;
 	const onAddToCart = () => {
 		if (!canAdd) {
@@ -302,7 +300,6 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 			>
 				<uilistlayout Padding={new UDim(0, gapPx)} />
 
-				{/* TRY ON / TAKE OFF */}
 				<Frame size={new UDim2(1, 0, 0.5, 0)} backgroundTransparency={1}>
 					<Button
 						size={new UDim2(mainBtnWidthScale, 0, 1, 0)}
@@ -311,17 +308,7 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 					>
 						<uicorner CornerRadius={new UDim(0, cornerPx)} />
 						<Text
-							text={
-								isDynamicHead
-									? equipped
-										? "TAKE OFF HEAD"
-										: "TRY ON HEAD"
-									: equipped
-									? "TAKE OFF"
-									: mode === "animPack"
-									? "TRY ON PACK"
-									: "TRY ON"
-							}
+							text={equipped ? "TAKE OFF" : "TRY ON"}
 							font={fonts.JosefinSans.bold}
 							size={new UDim2(1, 0, 1, 0)}
 							textColor={palette.black}
@@ -337,12 +324,22 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 						size={new UDim2(0, iconPx, 0, iconPx)}
 						onClick={onTryOn}
 					>
-						<Image image={images.ui.rectangle_rounded} backgroundTransparency={1} size={new UDim2(1, 0, 1, 0)} imageTransparency={fade} />
-						<Image image={images.ui.view_eye} backgroundTransparency={1} size={new UDim2(0.6, 0, 0.6, 0)} anchorPoint={new Vector2(0.5, 0.5)} position={new UDim2(0.5, 0, 0.5, 0)} imageTransparency={fade} />
+						<Image
+							image={images.ui.rectangle_rounded}
+							backgroundTransparency={1}
+							size={new UDim2(1, 0, 1, 0)}
+							imageTransparency={fade}
+						/>
+						<Image
+							image={images.ui.view_eye}
+							backgroundTransparency={1}
+							size={new UDim2(0.6, 0, 0.6, 0)}
+							anchorPoint={new Vector2(0.5, 0.5)}
+							position={new UDim2(0.5, 0, 0.5, 0)}
+							imageTransparency={fade}
+						/>
 					</Button>
 				</Frame>
-
-				{/* BUY / ADD TO CART */}
 				<Frame size={new UDim2(1, 0, 0.5, 0)} backgroundTransparency={1}>
 					<Button
 						size={new UDim2(mainBtnWidthScale, 0, 1, 0)}
@@ -367,8 +364,20 @@ export function DisplayOptions({ open, assetType, assetId, cellW, assetName, bun
 						size={new UDim2(0, iconPx, 0, iconPx)}
 						onClick={onAddToCart}
 					>
-						<Image image={images.ui.rectangle_rounded} backgroundTransparency={1} imageTransparency={inCart || cartCount >= MAX_CART ? 0.6 : fade} size={new UDim2(1, 0, 1, 0)} />
-						<Image image={images.ui.add_cart} backgroundTransparency={1} size={new UDim2(0.6, 0, 0.6, 0)} anchorPoint={new Vector2(0.5, 0.5)} position={new UDim2(0.5, 0, 0.5, 0)} imageTransparency={inCart || cartCount >= MAX_CART ? 0.6 : fade} />
+						<Image
+							image={images.ui.rectangle_rounded}
+							backgroundTransparency={1}
+							imageTransparency={inCart || cartCount >= MAX_CART ? 0.6 : fade}
+							size={new UDim2(1, 0, 1, 0)}
+						/>
+						<Image
+							image={images.ui.add_cart}
+							backgroundTransparency={1}
+							size={new UDim2(0.6, 0, 0.6, 0)}
+							anchorPoint={new Vector2(0.5, 0.5)}
+							position={new UDim2(0.5, 0, 0.5, 0)}
+							imageTransparency={inCart || cartCount >= MAX_CART ? 0.6 : fade}
+						/>
 					</Button>
 				</Frame>
 			</Frame>

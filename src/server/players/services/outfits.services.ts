@@ -108,7 +108,7 @@ export async function upsertOutfit(
 	const uid = player.UserId;
 	const doc = docs.get(uid);
 	const cur = saves.get(uid);
-
+	
 	print(
 		"[Outfits] upsert request",
 		player.Name, name,

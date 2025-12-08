@@ -8,6 +8,7 @@ import { Players, RunService } from "@rbxts/services";
 import { resetcharacter } from "client/components/shop/shopui/util/camerarotation";
 import { remotes, BodyColorsData } from "shared/remotes";
 import { applyDescriptionToAllTargets } from "client/components/shop/shopui/util/camerarotation";
+import { initAvatarCache } from "./avatar-cache";
 const LOCAL_PLAYER = Players.LocalPlayer!;
 const POLL_INTERVAL_SEC = 1;
 const BURST_THRESHOLD = 3;
@@ -340,3 +341,4 @@ class DescriptionWatcher {
 
 // ===== BOOT =====
 new DescriptionWatcher();
+initAvatarCache();

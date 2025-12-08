@@ -1,16 +1,11 @@
 import React, { useEffect, useState } from "@rbxts/react";
 import { useRem } from "client/hooks";
 import { Itemremove } from "client/components/ui/Item-remove";
-import {
-	getCurrentHumanoidAssets,
-	onAssetsChanged, // 👈 thay thế resolveAssetTypeOf
-	type SimpleAssetInfo,
-} from "./util/camerarotation";
-
+import { getCurrentHumanoidAssets, onAssetsChanged, type SimpleAssetInfo } from "./util/camerarotation";
+import { getInitialAvatarAssets } from "client/clientservices/avatar-cache";
 export function Assetpanel() {
 	const rem = useRem();
-	const [assets, setAssets] = useState<SimpleAssetInfo[]>(() => getCurrentHumanoidAssets());
-
+	const [assets, setAssets] = useState<SimpleAssetInfo[]>(() => getInitialAvatarAssets());
 	useEffect(() => {
 		const conn = onAssetsChanged(() => setAssets(getCurrentHumanoidAssets()));
 		return () => conn.Disconnect();
